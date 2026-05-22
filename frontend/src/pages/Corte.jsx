@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTopbar } from '../context/TopbarContext';
 import { useApiQuery } from '../hooks/useApi';
 import api from '../services/api';
@@ -14,12 +15,12 @@ const QR = ({ data, size = 80 }) => (
 const Inp = ({ label, ...p }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
     {label && <label style={{ fontSize: '.75rem', fontWeight: 600, color: '#374151' }}>{label}</label>}
-    <input style={{ padding: '7px 10px', borderRadius: 7, border: '1px solid #d1d5db', fontSize: '.875rem', outline: 'none', width: '100%', boxSizing: 'border-box' }} {...p} />
+    <input type="text" style={{ padding: '7px 10px', borderRadius: 7, border: '1px solid #d1d5db', fontSize: '.875rem', outline: 'none', width: '100%', boxSizing: 'border-box', background: '#fff' }} {...p} />
   </div>
 );
 
 function GradeTable({ cores, grade, onChange }) {
-  if (!cores.length) return <p style={{ color: '#9ca3af', fontSize: '.82rem' }}>Nenhuma cor na OP.</p>;
+  if (!cores.length) return <p style={{ color: '#9ca3af', fontSize: '.82rem' }}>Nenhuma cor cadastrada na OP.</p>;
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ borderCollapse: 'collapse', fontSize: '.82rem' }}>
@@ -36,7 +37,7 @@ function GradeTable({ cores, grade, onChange }) {
                 <td style={{ padding: '7px 12px', border: '1px solid #e5e7eb', fontWeight: 600, color: '#111827', whiteSpace: 'nowrap' }}>{cor}</td>
                 {TAMANHOS.map(t => (
                   <td key={t} style={{ border: '1px solid #e5e7eb', padding: '4px 6px', textAlign: 'center' }}>
-                    <input type="number" min="0" value={grade[cor]?.[t] || ''}
+                    <input type="number" min="0" value={grade[cor]?.[t] ?? ''}
                       onChange={e => onChange(cor, t, e.target.value)}
                       style={{ width: 52, textAlign: 'center', padding: '4px', borderRadius: 5, border: '1px solid #d1d5db', fontSize: '.82rem', outline: 'none' }} />
                   </td>
@@ -71,11 +72,34 @@ function Stepper({ step }) {
 
 const FORM0 = { op: null, fornecedor: '', grade: {}, kg_entrada: {}, pecas_cortadas: {} };
 
+function mergeGradeFromRefs(refs) {
+  const merged = {};
+  (refs || []).forEach(ref => {
+    let g = ref.grade_json;
+    if (typeof g === 'string') { try { g = JSON.parse(g); } catch { g = {}; } }
+    g = g || {};
+    Object.keys(g).forEach(cor => {
+      if (!merged[cor]) {
+        merged[cor] = {};
+        TAMANHOS.forEach(t => { merged[cor][t] = ''; });
+      }
+      TAMANHOS.forEach(t => {
+        const v = Number(g[cor]?.[t]) || 0;
+        merged[cor][t] = (Number(merged[cor][t]) || 0) + v;
+      });
+    });
+  });
+  return merged;
+}
+
 export default function Corte() {
   const { setAction, clearAction } = useTopbar();
+  const queryClient = useQueryClient();
   const [modal, setModal] = useState(false);
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(FORM0);
+  const [loadingRefs, setLoadingRefs] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [abaLabel, setAbaLabel] = useState(null);
 
   const { data: ordens = [], isLoading } = useApiQuery(['ordens-corte'], () => api.get('/ordens'));
@@ -87,13 +111,44 @@ export default function Corte() {
   }, []);
 
   const opsCandidatas = ordens.filter(o => ['Cadastrada','Corte'].includes(o.fase_atual));
-  const cores = form.op ? Object.keys(form.op.grade || {}) : [];
+
+  const selecionarOP = async (op) => {
+    if (!op) { setForm(f => ({ ...f, op: null, grade: {} })); return; }
+    setLoadingRefs(true);
+    try {
+      const { data: refs } = await api.get(`/ordens/${op.id}/referencias`);
+      const grade = mergeGradeFromRefs(refs);
+      setForm(f => ({ ...f, op, grade }));
+    } catch {
+      setForm(f => ({ ...f, op, grade: {} }));
+    } finally {
+      setLoadingRefs(false);
+    }
+  };
+
+  const abrirCorte = async (op) => {
+    setForm(FORM0);
+    setStep(0);
+    setModal(true);
+    setLoadingRefs(true);
+    try {
+      const { data: refs } = await api.get(`/ordens/${op.id}/referencias`);
+      const grade = mergeGradeFromRefs(refs);
+      setForm({ ...FORM0, op, grade });
+    } catch {
+      setForm({ ...FORM0, op });
+    } finally {
+      setLoadingRefs(false);
+    }
+  };
+
+  const cores = Object.keys(form.grade);
 
   const setGrade = (cor, tam, val) => setForm(f => ({ ...f, grade: { ...f.grade, [cor]: { ...(f.grade[cor] || {}), [tam]: val } } }));
   const setKg    = (cor, val)      => setForm(f => ({ ...f, kg_entrada:    { ...f.kg_entrada,    [cor]: val } }));
   const setPecas = (cor, val)      => setForm(f => ({ ...f, pecas_cortadas:{ ...f.pecas_cortadas,[cor]: val } }));
 
-  const planCor  = (cor) => TAMANHOS.reduce((s, t) => s + (Number((Object.keys(form.grade).length ? form.grade : form.op?.grade || {})[cor]?.[t]) || 0), 0);
+  const planCor  = (cor) => TAMANHOS.reduce((s, t) => s + (Number(form.grade[cor]?.[t]) || 0), 0);
   const totalCorte = Object.values(form.pecas_cortadas).reduce((s, v) => s + (Number(v) || 0), 0);
   const totalPlan  = cores.reduce((s, c) => s + planCor(c), 0);
 
@@ -104,16 +159,29 @@ export default function Corte() {
   })();
 
   const rendimento = cores.map(cor => {
-    const consumido = Number(form.kg_entrada[cor]) || 0;
-    const cortadas  = Number(form.pecas_cortadas[cor]) || 0;
+    const consumido  = Number(form.kg_entrada[cor]) || 0;
+    const cortadas   = Number(form.pecas_cortadas[cor]) || 0;
     const planejadas = planCor(cor);
     const sobra = (kgDisp[cor] || 0) - consumido;
     const rend  = consumido > 0 ? ((cortadas / consumido) * 100).toFixed(1) : '—';
     return { cor, consumido, sobra, cortadas, planejadas, rend };
   });
 
+  const handleFinalizar = async () => {
+    if (!form.op) return;
+    setSaving(true);
+    try {
+      await api.post(`/ordens/${form.op.id}/avancar-fase`);
+      queryClient.invalidateQueries({ queryKey: ['ordens-corte'] });
+      setModal(false);
+    } catch {
+      alert('Erro ao finalizar corte. Tente novamente.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const TD = { padding: '10px 14px', fontSize: '.85rem', color: '#374151', verticalAlign: 'middle' };
-  const gradeAtual = Object.keys(form.grade).length ? form.grade : (form.op?.grade || {});
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -145,42 +213,31 @@ export default function Corte() {
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
-              {['OP','Cliente','Descrição','Cores','Peças','Fase','Ações'].map(h => (
+              {['OP','Cliente','Descrição','Fase','Ações'].map(h => (
                 <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '.72rem', fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '.4px', whiteSpace: 'nowrap' }}>{h}</th>
               ))}
             </tr></thead>
             <tbody>
               {isLoading
-                ? <tr><td colSpan={7} style={{ padding: '3rem', textAlign: 'center', color: '#9ca3af' }}>Carregando...</td></tr>
+                ? <tr><td colSpan={5} style={{ padding: '3rem', textAlign: 'center', color: '#9ca3af' }}>Carregando...</td></tr>
                 : opsCandidatas.length === 0
-                ? <tr><td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>Nenhuma OP aguardando corte.</td></tr>
-                : opsCandidatas.map(op => {
-                  const cs = Object.keys(op.grade || {});
-                  const total = cs.reduce((s, c) => s + Object.values(op.grade[c] || {}).reduce((a, b) => a + (Number(b) || 0), 0), 0);
-                  return (
-                    <tr key={op.id} style={{ borderBottom: '1px solid #f1f5f9' }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                      <td style={{ ...TD, fontWeight: 700, fontFamily: 'monospace', fontSize: '.82rem' }}>#{op.numero_op}</td>
-                      <td style={{ ...TD, fontWeight: 600, color: '#111827' }}>{op.cliente_nome || '—'}</td>
-                      <td style={{ ...TD, color: '#6b7280' }}>{op.descricao || '—'}</td>
-                      <td style={TD}>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          {cs.slice(0, 3).map(c => <span key={c} style={{ padding: '2px 7px', borderRadius: 999, background: '#f3f4f6', color: '#374151', fontSize: '.7rem', fontWeight: 600 }}>{c}</span>)}
-                          {cs.length > 3 && <span style={{ fontSize: '.7rem', color: '#6b7280' }}>+{cs.length - 3}</span>}
-                        </div>
-                      </td>
-                      <td style={TD}>{total}</td>
-                      <td style={TD}><span style={{ padding: '3px 9px', borderRadius: 999, fontSize: '.72rem', fontWeight: 600, background: op.fase_atual === 'Corte' ? '#fef3c7' : '#dbeafe', color: op.fase_atual === 'Corte' ? '#d97706' : '#2563eb' }}>{op.fase_atual}</span></td>
-                      <td style={{ ...TD, display: 'flex', gap: 6 }}>
-                        <button onClick={() => { setForm({ ...FORM0, op }); setStep(0); setModal(true); }}
-                          style={{ padding: '5px 12px', borderRadius: 6, background: '#cffafe', color: '#0891b2', border: '1px solid #a5f3fc', fontSize: '.75rem', fontWeight: 600, cursor: 'pointer' }}>✂ Cortar</button>
-                        <button onClick={() => setAbaLabel(op)}
-                          style={{ padding: '5px 12px', borderRadius: 6, background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', fontSize: '.75rem', fontWeight: 600, cursor: 'pointer' }}>🏷 Etiquetas</button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                ? <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>Nenhuma OP aguardando corte.</td></tr>
+                : opsCandidatas.map(op => (
+                  <tr key={op.id} style={{ borderBottom: '1px solid #f1f5f9' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <td style={{ ...TD, fontWeight: 700, fontFamily: 'monospace', fontSize: '.82rem' }}>#{op.numero_op || op.numero}</td>
+                    <td style={{ ...TD, fontWeight: 600, color: '#111827' }}>{op.cliente_nome || '—'}</td>
+                    <td style={{ ...TD, color: '#6b7280' }}>{op.descricao || op.observacoes || '—'}</td>
+                    <td style={TD}><span style={{ padding: '3px 9px', borderRadius: 999, fontSize: '.72rem', fontWeight: 600, background: op.fase_atual === 'Corte' ? '#fef3c7' : '#dbeafe', color: op.fase_atual === 'Corte' ? '#d97706' : '#2563eb' }}>{op.fase_atual}</span></td>
+                    <td style={{ ...TD, display: 'flex', gap: 6 }}>
+                      <button onClick={() => abrirCorte(op)}
+                        style={{ padding: '5px 12px', borderRadius: 6, background: '#cffafe', color: '#0891b2', border: '1px solid #a5f3fc', fontSize: '.75rem', fontWeight: 600, cursor: 'pointer' }}>✂ Cortar</button>
+                      <button onClick={() => setAbaLabel(op)}
+                        style={{ padding: '5px 12px', borderRadius: 6, background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', fontSize: '.75rem', fontWeight: 600, cursor: 'pointer' }}>🏷 Etiquetas</button>
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>
@@ -190,36 +247,13 @@ export default function Corte() {
       {abaLabel && (
         <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,.07)', overflow: 'hidden' }}>
           <div style={{ padding: '12px 18px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '.9rem', fontWeight: 700, color: '#111827' }}>🏷 Etiquetas — OP #{abaLabel.numero_op}</span>
+            <span style={{ fontSize: '.9rem', fontWeight: 700, color: '#111827' }}>🏷 Etiquetas — OP #{abaLabel.numero_op || abaLabel.numero}</span>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => window.print()} style={{ padding: '6px 14px', borderRadius: 7, background: '#16a34a', color: '#fff', border: 'none', fontSize: '.8rem', fontWeight: 600, cursor: 'pointer' }}>🖨 Imprimir</button>
               <button onClick={() => setAbaLabel(null)} style={{ padding: '6px 14px', borderRadius: 7, background: '#f3f4f6', color: '#374151', border: 'none', fontSize: '.8rem', cursor: 'pointer' }}>Fechar</button>
             </div>
           </div>
-          <div style={{ padding: '18px', display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-            {Object.keys(abaLabel.grade || {}).map(cor => {
-              const total = Object.values(abaLabel.grade[cor] || {}).reduce((s, v) => s + (Number(v) || 0), 0);
-              const qrData = `OP:${abaLabel.numero_op}|COR:${cor}|PCS:${total}|CLI:${abaLabel.cliente_nome || ''}`;
-              return (
-                <div key={cor} style={{ border: '2px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', minWidth: 200, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center', background: '#fafafa' }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <p style={{ margin: 0, fontSize: '.62rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.4px' }}>ConfecçãoERP — Corte</p>
-                    <p style={{ margin: '2px 0', fontSize: '1rem', fontWeight: 800, color: '#111827' }}>{cor}</p>
-                    <p style={{ margin: 0, fontSize: '.72rem', color: '#6b7280' }}>OP #{abaLabel.numero_op} · {total} pcs</p>
-                  </div>
-                  <QR data={qrData} size={80} />
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 4, width: '100%' }}>
-                    {TAMANHOS.map(t => { const q = abaLabel.grade[cor]?.[t] || 0; return q > 0 ? (
-                      <div key={t} style={{ textAlign: 'center', padding: '3px 4px', borderRadius: 4, background: '#f3f4f6' }}>
-                        <p style={{ margin: 0, fontSize: '.6rem', color: '#9ca3af' }}>{t}</p>
-                        <p style={{ margin: 0, fontSize: '.78rem', fontWeight: 700, color: '#374151' }}>{q}</p>
-                      </div>
-                    ) : null; })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <EtiquetasOP op={abaLabel} />
         </div>
       )}
 
@@ -235,66 +269,98 @@ export default function Corte() {
             <Stepper step={step} />
             <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px' }}>
 
+              {/* Passo 1 — Selecionar OP */}
               {step === 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <p style={{ margin: 0, fontSize: '.85rem', color: '#6b7280' }}>Selecione a OP e informe o fornecedor de corte.</p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <label style={{ fontSize: '.78rem', fontWeight: 600, color: '#374151' }}>Ordem de Produção *</label>
-                    <select value={form.op?.id || ''} onChange={e => { const op = opsCandidatas.find(o => String(o.id) === e.target.value); setForm(f => ({ ...f, op: op || null, grade: {} })); }}
+                    <select
+                      value={form.op?.id || ''}
+                      onChange={e => {
+                        const op = opsCandidatas.find(o => String(o.id) === e.target.value) || null;
+                        selecionarOP(op);
+                      }}
                       style={{ padding: '8px 10px', borderRadius: 7, border: '1px solid #d1d5db', fontSize: '.875rem', outline: 'none', background: '#fff' }}>
                       <option value="">Selecione uma OP...</option>
-                      {opsCandidatas.map(o => <option key={o.id} value={o.id}>#{o.numero_op} — {o.cliente_nome} — {o.descricao || 'sem descrição'}</option>)}
+                      {opsCandidatas.map(o => (
+                        <option key={o.id} value={o.id}>
+                          #{o.numero_op || o.numero} — {o.cliente_nome || 'sem cliente'} — {o.descricao || o.observacoes || 'sem descrição'}
+                        </option>
+                      ))}
                     </select>
                   </div>
-                  <Inp label="Fornecedor de corte" placeholder="Nome do fornecedor / setor de corte" value={form.fornecedor} onChange={e => setForm(f => ({ ...f, fornecedor: e.target.value }))} />
-                  {form.op && (
+                  <Inp
+                    label="Fornecedor de corte"
+                    placeholder="Nome do fornecedor / setor de corte"
+                    value={form.fornecedor}
+                    onChange={e => setForm(f => ({ ...f, fornecedor: e.target.value }))}
+                  />
+                  {loadingRefs && (
+                    <p style={{ margin: 0, fontSize: '.8rem', color: '#6b7280' }}>Carregando grade da OP...</p>
+                  )}
+                  {form.op && !loadingRefs && (
                     <div style={{ padding: '12px 14px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                      <p style={{ margin: 0, fontSize: '.82rem', fontWeight: 700, color: '#111827' }}>OP #{form.op.numero_op} — {form.op.cliente_nome}</p>
-                      <p style={{ margin: '3px 0 0', fontSize: '.75rem', color: '#6b7280' }}>Cores: {Object.keys(form.op.grade || {}).join(', ') || 'Sem grade'} · Fase: {form.op.fase_atual}</p>
+                      <p style={{ margin: 0, fontSize: '.82rem', fontWeight: 700, color: '#111827' }}>
+                        OP #{form.op.numero_op || form.op.numero} — {form.op.cliente_nome || 'sem cliente'}
+                      </p>
+                      <p style={{ margin: '3px 0 0', fontSize: '.75rem', color: '#6b7280' }}>
+                        Cores: {cores.join(', ') || 'Nenhuma cor cadastrada'} · Fase: {form.op.fase_atual}
+                      </p>
                     </div>
                   )}
                 </div>
               )}
 
+              {/* Passo 2 — Grade de Corte */}
               {step === 1 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <p style={{ margin: 0, fontSize: '.85rem', color: '#6b7280' }}>Defina a quantidade a cortar por cor e tamanho.</p>
-                  <GradeTable cores={cores} grade={gradeAtual} onChange={setGrade} />
+                  {loadingRefs
+                    ? <p style={{ color: '#9ca3af', fontSize: '.82rem' }}>Carregando grade...</p>
+                    : <GradeTable cores={cores} grade={form.grade} onChange={setGrade} />
+                  }
                 </div>
               )}
 
+              {/* Passo 3 — Corte Real */}
               {step === 2 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <p style={{ margin: 0, fontSize: '.85rem', color: '#6b7280' }}>Informe o kg de malha consumido e as peças efetivamente cortadas por cor.</p>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ borderCollapse: 'collapse', fontSize: '.82rem', width: '100%' }}>
-                      <thead><tr style={{ background: '#f8fafc' }}>
-                        {['Cor','Kg disponível','Kg consumido','Pcs planejadas','Pcs cortadas'].map(h => (
-                          <th key={h} style={{ padding: '8px 12px', fontWeight: 700, color: '#374151', textAlign: 'left', border: '1px solid #e5e7eb', fontSize: '.7rem', textTransform: 'uppercase' }}>{h}</th>
-                        ))}
-                      </tr></thead>
-                      <tbody>
-                        {cores.map(cor => (
-                          <tr key={cor}>
-                            <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', fontWeight: 600, color: '#111827' }}>{cor}</td>
-                            <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', color: '#6b7280' }}>{kgDisp[cor] ? `${kgDisp[cor]} kg` : '—'}</td>
-                            <td style={{ border: '1px solid #e5e7eb', padding: '4px 8px' }}>
-                              <input type="number" min="0" step="0.1" value={form.kg_entrada[cor] || ''} onChange={e => setKg(cor, e.target.value)} placeholder="0.0"
-                                style={{ width: 80, padding: '5px', borderRadius: 5, border: '1px solid #d1d5db', fontSize: '.82rem', outline: 'none' }} />
-                            </td>
-                            <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', color: '#6b7280', textAlign: 'center' }}>{planCor(cor)}</td>
-                            <td style={{ border: '1px solid #e5e7eb', padding: '4px 8px' }}>
-                              <input type="number" min="0" value={form.pecas_cortadas[cor] || ''} onChange={e => setPecas(cor, e.target.value)} placeholder="0"
-                                style={{ width: 80, padding: '5px', borderRadius: 5, border: '1px solid #d1d5db', fontSize: '.82rem', outline: 'none' }} />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  {cores.length === 0
+                    ? <p style={{ color: '#9ca3af', fontSize: '.82rem' }}>Nenhuma cor cadastrada na OP.</p>
+                    : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ borderCollapse: 'collapse', fontSize: '.82rem', width: '100%' }}>
+                        <thead><tr style={{ background: '#f8fafc' }}>
+                          {['Cor','Kg disponível','Kg consumido','Pcs planejadas','Pcs cortadas'].map(h => (
+                            <th key={h} style={{ padding: '8px 12px', fontWeight: 700, color: '#374151', textAlign: 'left', border: '1px solid #e5e7eb', fontSize: '.7rem', textTransform: 'uppercase' }}>{h}</th>
+                          ))}
+                        </tr></thead>
+                        <tbody>
+                          {cores.map(cor => (
+                            <tr key={cor}>
+                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', fontWeight: 600, color: '#111827' }}>{cor}</td>
+                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', color: '#6b7280' }}>{kgDisp[cor] ? `${kgDisp[cor]} kg` : '—'}</td>
+                              <td style={{ border: '1px solid #e5e7eb', padding: '4px 8px' }}>
+                                <input type="number" min="0" step="0.1" value={form.kg_entrada[cor] || ''} onChange={e => setKg(cor, e.target.value)} placeholder="0.0"
+                                  style={{ width: 80, padding: '5px', borderRadius: 5, border: '1px solid #d1d5db', fontSize: '.82rem', outline: 'none' }} />
+                              </td>
+                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', color: '#6b7280', textAlign: 'center' }}>{planCor(cor)}</td>
+                              <td style={{ border: '1px solid #e5e7eb', padding: '4px 8px' }}>
+                                <input type="number" min="0" value={form.pecas_cortadas[cor] || ''} onChange={e => setPecas(cor, e.target.value)} placeholder="0"
+                                  style={{ width: 80, padding: '5px', borderRadius: 5, border: '1px solid #d1d5db', fontSize: '.82rem', outline: 'none' }} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
 
+              {/* Passo 4 — Rendimento */}
               {step === 3 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
@@ -314,27 +380,32 @@ export default function Corte() {
                       <p style={{ margin: '2px 0 0', fontSize: '.72rem', color: '#6b7280' }}>rendimento geral</p>
                     </div>
                   </div>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ borderCollapse: 'collapse', fontSize: '.82rem', width: '100%' }}>
-                      <thead><tr style={{ background: '#f8fafc' }}>
-                        {['Cor','Kg consumido','Sobra kg','Pcs planejadas','Pcs cortadas','Rendimento'].map(h => (
-                          <th key={h} style={{ padding: '8px 12px', fontWeight: 700, color: '#374151', textAlign: 'center', border: '1px solid #e5e7eb', fontSize: '.7rem', textTransform: 'uppercase' }}>{h}</th>
-                        ))}
-                      </tr></thead>
-                      <tbody>
-                        {rendimento.map(r => (
-                          <tr key={r.cor}>
-                            <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', fontWeight: 600, color: '#111827', textAlign: 'center' }}>{r.cor}</td>
-                            <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#374151' }}>{r.consumido || '—'} kg</td>
-                            <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center' }}><span style={{ color: r.sobra >= 0 ? '#16a34a' : '#dc2626', fontWeight: 700 }}>{r.sobra.toFixed(1)} kg</span></td>
-                            <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#6b7280' }}>{r.planejadas}</td>
-                            <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', fontWeight: 700, color: r.cortadas >= r.planejadas ? '#16a34a' : '#dc2626' }}>{r.cortadas}</td>
-                            <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center' }}><span style={{ padding: '3px 8px', borderRadius: 999, background: '#fef3c7', color: '#d97706', fontSize: '.75rem', fontWeight: 700 }}>{r.rend}%</span></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  {cores.length > 0 && (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ borderCollapse: 'collapse', fontSize: '.82rem', width: '100%' }}>
+                        <thead><tr style={{ background: '#f8fafc' }}>
+                          {['Cor','Kg consumido','Sobra kg','Pcs planejadas','Pcs cortadas','Rendimento'].map(h => (
+                            <th key={h} style={{ padding: '8px 12px', fontWeight: 700, color: '#374151', textAlign: 'center', border: '1px solid #e5e7eb', fontSize: '.7rem', textTransform: 'uppercase' }}>{h}</th>
+                          ))}
+                        </tr></thead>
+                        <tbody>
+                          {rendimento.map(r => (
+                            <tr key={r.cor}>
+                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', fontWeight: 600, color: '#111827', textAlign: 'center' }}>{r.cor}</td>
+                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#374151' }}>{r.consumido || '—'} kg</td>
+                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center' }}><span style={{ color: r.sobra >= 0 ? '#16a34a' : '#dc2626', fontWeight: 700 }}>{r.sobra.toFixed(1)} kg</span></td>
+                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#6b7280' }}>{r.planejadas}</td>
+                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', fontWeight: 700, color: r.cortadas >= r.planejadas ? '#16a34a' : '#dc2626' }}>{r.cortadas}</td>
+                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center' }}><span style={{ padding: '3px 8px', borderRadius: 999, background: '#fef3c7', color: '#d97706', fontSize: '.75rem', fontWeight: 700 }}>{r.rend}%</span></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <p style={{ margin: 0, fontSize: '.8rem', color: '#6b7280' }}>
+                    Ao finalizar, a OP avançará para a próxima fase automaticamente.
+                  </p>
                 </div>
               )}
             </div>
@@ -344,15 +415,67 @@ export default function Corte() {
                 {step > 0 && <button onClick={() => setStep(s => s - 1)} style={{ padding: '7px 16px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', color: '#374151', fontSize: '.85rem', cursor: 'pointer' }}>← Anterior</button>}
               </div>
               {step < 3
-                ? <button onClick={() => { if (!form.op && step === 0) { alert('Selecione uma OP'); return; } setStep(s => s + 1); }}
-                    style={{ padding: '7px 22px', borderRadius: 8, background: '#16a34a', color: '#fff', border: 'none', fontSize: '.85rem', fontWeight: 600, cursor: 'pointer' }}>Próximo →</button>
-                : <button onClick={() => setModal(false)}
-                    style={{ padding: '7px 22px', borderRadius: 8, background: '#16a34a', color: '#fff', border: 'none', fontSize: '.85rem', fontWeight: 600, cursor: 'pointer' }}>✓ Finalizar Corte</button>
+                ? <button
+                    onClick={() => { if (!form.op && step === 0) { alert('Selecione uma OP'); return; } setStep(s => s + 1); }}
+                    disabled={loadingRefs}
+                    style={{ padding: '7px 22px', borderRadius: 8, background: loadingRefs ? '#d1d5db' : '#16a34a', color: '#fff', border: 'none', fontSize: '.85rem', fontWeight: 600, cursor: loadingRefs ? 'not-allowed' : 'pointer' }}>
+                    {loadingRefs ? 'Aguarde...' : 'Próximo →'}
+                  </button>
+                : <button
+                    onClick={handleFinalizar}
+                    disabled={saving}
+                    style={{ padding: '7px 22px', borderRadius: 8, background: saving ? '#d1d5db' : '#16a34a', color: '#fff', border: 'none', fontSize: '.85rem', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                    {saving ? 'Salvando...' : '✓ Finalizar Corte'}
+                  </button>
               }
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function EtiquetasOP({ op }) {
+  const [refs, setRefs] = useState([]);
+
+  useEffect(() => {
+    api.get(`/ordens/${op.id}/referencias`).then(r => {
+      setRefs(r.data || []);
+    }).catch(() => setRefs([]));
+  }, [op.id]);
+
+  if (!refs.length) return <p style={{ padding: 18, color: '#9ca3af', fontSize: '.82rem' }}>Carregando etiquetas...</p>;
+
+  return (
+    <div style={{ padding: '18px', display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+      {refs.flatMap(ref => {
+        let g = ref.grade_json;
+        if (typeof g === 'string') { try { g = JSON.parse(g); } catch { g = {}; } }
+        g = g || {};
+        return Object.keys(g).map(cor => {
+          const total = TAMANHOS.reduce((s, t) => s + (Number(g[cor]?.[t]) || 0), 0);
+          const qrData = `OP:${op.numero_op || op.numero}|REF:${ref.nome}|COR:${cor}|PCS:${total}|CLI:${op.cliente_nome || ''}`;
+          return (
+            <div key={`${ref.id}-${cor}`} style={{ border: '2px solid #e5e7eb', borderRadius: 10, padding: '14px 16px', minWidth: 200, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center', background: '#fafafa' }}>
+              <div style={{ textAlign: 'center' }}>
+                <p style={{ margin: 0, fontSize: '.62rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.4px' }}>ConfecçãoERP — Corte</p>
+                <p style={{ margin: '2px 0', fontSize: '1rem', fontWeight: 800, color: '#111827' }}>{cor}</p>
+                <p style={{ margin: 0, fontSize: '.72rem', color: '#6b7280' }}>OP #{op.numero_op || op.numero} · {ref.nome} · {total} pcs</p>
+              </div>
+              <QR data={qrData} size={80} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 4, width: '100%' }}>
+                {TAMANHOS.map(t => { const q = Number(g[cor]?.[t]) || 0; return q > 0 ? (
+                  <div key={t} style={{ textAlign: 'center', padding: '3px 4px', borderRadius: 4, background: '#f3f4f6' }}>
+                    <p style={{ margin: 0, fontSize: '.6rem', color: '#9ca3af' }}>{t}</p>
+                    <p style={{ margin: 0, fontSize: '.78rem', fontWeight: 700, color: '#374151' }}>{q}</p>
+                  </div>
+                ) : null; })}
+              </div>
+            </div>
+          );
+        });
+      })}
     </div>
   );
 }
