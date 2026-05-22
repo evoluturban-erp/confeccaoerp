@@ -1,9 +1,7 @@
 import axios from 'axios';
 
-// Em dev: Vite proxy repassa /api → http://localhost:3001/api (sem CORS)
-// Em prod: definir VITE_API_URL=https://seu-backend.com/api
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? '/api',
+  baseURL: import.meta.env.VITE_API_URL ?? 'https://confeccaoerp-production.up.railway.app/api',
   timeout: 10000,
 });
 
