@@ -20,18 +20,26 @@ const relatoriosRoutes  = require('./routes/relatorios');
 const app = express();
 const server = http.createServer(app);
 
-// origens permitidas: env var + fallbacks para dev local
+// origens permitidas: env var + produção Vercel + fallbacks para dev local
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  'https://confeccaoerp.vercel.app',
   'http://localhost:3000',
   'http://localhost:5173',
   'http://localhost:4173',
 ].filter(Boolean);
 
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  // aceita qualquer subdomínio de vercel.app (previews de PR, branches etc.)
+  if (/^https:\/\/[^.]+\.vercel\.app$/.test(origin)) return true;
+  return false;
+};
+
 const corsOptions = {
   origin: (origin, callback) => {
-    // permite sem origin (curl, Postman, proxies)
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (isOriginAllowed(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`CORS bloqueado para origin: ${origin}`));
@@ -41,7 +49,10 @@ const corsOptions = {
 };
 
 const io = new Server(server, {
-  cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
+  cors: {
+    origin: (origin, callback) => callback(null, isOriginAllowed(origin)),
+    methods: ['GET', 'POST'],
+  },
 });
 
 app.use(cors(corsOptions));
