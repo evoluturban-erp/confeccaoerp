@@ -1,11 +1,11 @@
 // Configuração central de permissões por perfil
 
 const PROFILE_CONFIG = {
-  Administrador: { home: '/dashboard', allowed: null,  blocked: [] },
-  Gerente:       { home: '/dashboard', allowed: null,  blocked: ['/usuarios'] },
-  Transportador: { home: '/transporte', allowed: ['/transporte', '/app-mobile'], blocked: [] },
-  Faccao:        { home: '/costura',   allowed: ['/costura', '/qualidade'],      blocked: [] },
-  Revisora:      { home: '/qualidade', allowed: ['/qualidade'],                  blocked: [] },
+  Administrador: { home: '/dashboard',            allowed: null,                                 blocked: [] },
+  Gerente:       { home: '/dashboard',            allowed: null,                                 blocked: ['/usuarios'] },
+  Transportador: { home: '/mobile/transportador', allowed: ['/mobile/transportador'],            blocked: [] },
+  Faccao:        { home: '/mobile/faccao',        allowed: ['/mobile/faccao'],                   blocked: [] },
+  Revisora:      { home: '/qualidade',            allowed: ['/qualidade'],                       blocked: [] },
 };
 
 export function getHome(perfil) {
@@ -21,3 +21,6 @@ export function canAccess(perfil, pathname) {
   if (cfg.allowed === null) return true;
   return cfg.allowed.some(a => pathname === a || pathname.startsWith(a + '/'));
 }
+
+// Perfis que usam layout mobile dedicado (sem sidebar/topbar do sistema)
+export const MOBILE_PROFILES = ['Transportador', 'Faccao'];

@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import { getHome } from './config/permissions';
 
+// ─── páginas desktop ──────────────────────────────────────────────────────────
 const Dashboard      = lazy(() => import('./pages/Dashboard'));
 const OrdensProducao = lazy(() => import('./pages/OrdensProducao'));
 const Clientes       = lazy(() => import('./pages/Clientes'));
@@ -24,11 +25,15 @@ const Transporte     = lazy(() => import('./pages/Transporte'));
 const Etiquetas      = lazy(() => import('./pages/Etiquetas'));
 const Faturamento    = lazy(() => import('./pages/Faturamento'));
 
+// ─── páginas mobile dedicadas ─────────────────────────────────────────────────
+const MobileTransportador = lazy(() => import('./pages/mobile/Transportador'));
+const MobileFaccao        = lazy(() => import('./pages/mobile/Faccao'));
+
 function PageLoad() {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      height: '60vh', color: '#9ca3af', fontSize: '0.9rem',
+      height: '100vh', background: '#071e0f', color: 'rgba(255,255,255,.5)', fontSize: '0.9rem',
     }}>
       Carregando...
     </div>
@@ -57,7 +62,23 @@ function AppRoutes() {
       {/* raiz */}
       <Route path="/" element={<RootRedirect />} />
 
-      {/* protegidas */}
+      {/* ── rotas mobile dedicadas (sem Layout) ─────────────────────────── */}
+      <Route
+        path="/mobile/*"
+        element={
+          <PrivateRoute>
+            <Suspense fallback={<PageLoad />}>
+              <Routes>
+                <Route path="/transportador" element={<MobileTransportador />} />
+                <Route path="/faccao"        element={<MobileFaccao />} />
+                <Route path="*"              element={<Navigate to={home} replace />} />
+              </Routes>
+            </Suspense>
+          </PrivateRoute>
+        }
+      />
+
+      {/* ── rotas desktop (com Layout + sidebar) ────────────────────────── */}
       <Route
         path="/*"
         element={
