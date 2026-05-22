@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getHome } from '../config/permissions';
 
 export default function Login() {
   const { login } = useAuth();
@@ -15,8 +16,8 @@ export default function Login() {
     setErro('');
     setCarregando(true);
     try {
-      await login(form.usuario, form.senha);
-      navigate('/dashboard');
+      const u = await login(form.usuario, form.senha);
+      navigate(getHome(u?.perfil), { replace: true });
     } catch (err) {
       // backend retorna { error: "..." } — verificar ambos os campos
       const msg = err.response?.data?.error

@@ -4,6 +4,7 @@ import { useAuth } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import { getHome } from './config/permissions';
 
 const Dashboard      = lazy(() => import('./pages/Dashboard'));
 const OrdensProducao = lazy(() => import('./pages/OrdensProducao'));
@@ -34,19 +35,27 @@ function PageLoad() {
   );
 }
 
+// Redireciona para a home do perfil; se não autenticado, vai para /login
+function RootRedirect() {
+  const { isAuthenticated, user } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <Navigate to={getHome(user?.perfil)} replace />;
+}
+
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const home = getHome(user?.perfil);
 
   return (
     <Routes>
       {/* pública */}
       <Route
         path="/login"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />}
+        element={isAuthenticated ? <Navigate to={home} replace /> : <Login />}
       />
 
       {/* raiz */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<RootRedirect />} />
 
       {/* protegidas */}
       <Route
@@ -77,14 +86,14 @@ function AppRoutes() {
                   <Route path="/estoque/*"       element={<Estoque />} />
 
                   {/* comercial */}
-                  <Route path="/clientes"      element={<Clientes />} />
-                  <Route path="/clientes/*"    element={<Clientes />} />
-                  <Route path="/fornecedores"  element={<Fornecedores />} />
-                  <Route path="/fornecedores/*"element={<Fornecedores />} />
-                  <Route path="/transporte"    element={<Transporte />} />
-                  <Route path="/transporte/*"  element={<Transporte />} />
-                  <Route path="/etiquetas"     element={<Etiquetas />} />
-                  <Route path="/etiquetas/*"   element={<Etiquetas />} />
+                  <Route path="/clientes"       element={<Clientes />} />
+                  <Route path="/clientes/*"     element={<Clientes />} />
+                  <Route path="/fornecedores"   element={<Fornecedores />} />
+                  <Route path="/fornecedores/*" element={<Fornecedores />} />
+                  <Route path="/transporte"     element={<Transporte />} />
+                  <Route path="/transporte/*"   element={<Transporte />} />
+                  <Route path="/etiquetas"      element={<Etiquetas />} />
+                  <Route path="/etiquetas/*"    element={<Etiquetas />} />
 
                   {/* financeiro */}
                   <Route path="/financeiro"       element={<Financeiro />} />
@@ -103,8 +112,8 @@ function AppRoutes() {
                   <Route path="/usuarios/*"   element={<Usuarios />} />
                   <Route path="/app-mobile"   element={<AppMobile />} />
 
-                  {/* fallback */}
-                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                  {/* fallback → home do perfil */}
+                  <Route path="*" element={<Navigate to={home} replace />} />
                 </Routes>
               </Suspense>
             </Layout>

@@ -1,6 +1,8 @@
+import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { TopbarProvider, useTopbar } from '../context/TopbarContext';
+import { canAccess, getHome } from '../config/permissions';
 
 // ─── dados de menu ────────────────────────────────────────────────────────────
 
@@ -30,17 +32,17 @@ const MENU_SECTIONS = [
   {
     label: 'COMERCIAL',
     items: [
-      { path: '/clientes',      label: 'Clientes',    icon: '👥' },
-      { path: '/fornecedores',  label: 'Fornecedores', icon: '🏭' },
-      { path: '/transporte',    label: 'Transporte',   icon: '🚚' },
-      { path: '/etiquetas',     label: 'Etiquetas',    icon: '🏷' },
+      { path: '/clientes',     label: 'Clientes',    icon: '👥' },
+      { path: '/fornecedores', label: 'Fornecedores', icon: '🏭' },
+      { path: '/transporte',   label: 'Transporte',   icon: '🚚' },
+      { path: '/etiquetas',    label: 'Etiquetas',    icon: '🏷' },
     ],
   },
   {
     label: 'FINANCEIRO',
     items: [
-      { path: '/financeiro',      label: 'Financeiro',        icon: '💵' },
-      { path: '/faturamento',     label: 'Faturamento',       icon: '📄' },
+      { path: '/financeiro',  label: 'Financeiro',  icon: '💵' },
+      { path: '/faturamento', label: 'Faturamento', icon: '📄' },
     ],
   },
   {
@@ -84,12 +86,29 @@ function isActive(item, pathname) {
   return item.exact ? pathname === item.path : pathname.startsWith(item.path);
 }
 
+// ─── RouteGuard ───────────────────────────────────────────────────────────────
+// Redireciona para a home do perfil se o pathname atual não for permitido
+
+function RouteGuard() {
+  const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user) return;
+    if (!canAccess(user.perfil, location.pathname)) {
+      navigate(getHome(user.perfil), { replace: true });
+    }
+  }, [location.pathname, user, navigate]);
+
+  return null;
+}
+
 // ─── Topbar ───────────────────────────────────────────────────────────────────
 
 function Topbar() {
   const { action } = useTopbar();
   const location = useLocation();
-  const navigate = useNavigate();
 
   const title = (() => {
     for (const [path, label] of Object.entries(PAGE_TITLES)) {
@@ -178,6 +197,15 @@ function MenuItem({ item }) {
 function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const perfil = user?.perfil;
+
+  // Filtra seções e itens conforme o perfil
+  const visibleSections = MENU_SECTIONS
+    .map(section => ({
+      ...section,
+      items: section.items.filter(item => canAccess(perfil, item.path)),
+    }))
+    .filter(section => section.items.length > 0);
 
   const handleLogout = async () => {
     await logout();
@@ -216,9 +244,9 @@ function Sidebar() {
         </div>
       </div>
 
-      {/* navegação */}
+      {/* navegação filtrada por perfil */}
       <nav style={{ flex: 1, overflowY: 'auto', padding: '0.625rem 0', scrollbarWidth: 'thin' }}>
-        {MENU_SECTIONS.map((section, si) => (
+        {visibleSections.map((section, si) => (
           <div key={si} style={{ marginBottom: '0.25rem' }}>
             {section.label && (
               <p style={{
@@ -259,7 +287,7 @@ function Sidebar() {
               {user?.nome || user?.name || 'Usuário'}
             </p>
             <p style={{ margin: 0, fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)' }}>
-              {user?.perfil || user?.role || 'Operador'}
+              {perfil || 'Operador'}
             </p>
           </div>
         </div>
@@ -285,14 +313,13 @@ function Sidebar() {
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
-import { useState } from 'react';
-
 export default function Layout({ children }) {
   return (
     <TopbarProvider>
       <div style={{ display: 'flex', minHeight: '100vh', background: '#f1f5f9' }}>
         <Sidebar />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+          <RouteGuard />
           <Topbar />
           <main style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
             {children}
