@@ -1,10 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useTopbar } from '../context/TopbarContext';
 import { useApiQuery } from '../hooks/useApi';
+import { useOverlayClose } from '../hooks/useOverlayClose';
 import api from '../services/api';
 
 const TAMANHOS = ['PP','P','M','G','GG','XGG'];
 const thS = { padding:'8px 12px', fontWeight:700, color:'#374151', textAlign:'center', border:'1px solid #e5e7eb', fontSize:'.72rem', textTransform:'uppercase' };
+
+function ModalOverlay({ onClose, children }) {
+  const op = useOverlayClose(onClose);
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.45)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }} {...op}>
+      {children}
+    </div>
+  );
+}
 
 function GradeInput({ cores, grade, onChange }) {
   if (!cores.length) return <p style={{ color:'#9ca3af', fontSize:'.82rem' }}>Selecione uma OP na etapa anterior.</p>;
@@ -188,8 +198,7 @@ export default function Costura() {
 
       {/* Modal novo envio */}
       {modal==='envio' && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.45)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}
-          onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+        <ModalOverlay onClose={()=>setModal(null)}>
           <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:680, maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,.2)' }}>
             <div style={{ padding:'14px 22px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
               <h3 style={{ margin:0, fontSize:'1rem', fontWeight:700 }}>Novo Envio para Facção</h3>
@@ -255,13 +264,12 @@ export default function Costura() {
                       : <button onClick={confirmarEnvio} style={{ padding:'7px 22px', borderRadius:8, background:'#16a34a', color:'#fff', border:'none', fontSize:'.85rem', fontWeight:600, cursor:'pointer' }}>✓ Confirmar Envio</button>}
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Modal retorno */}
       {modal==='retorno' && envioSel && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.45)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}
-          onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+        <ModalOverlay onClose={()=>setModal(null)}>
           <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:720, maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,.2)' }}>
             <div style={{ padding:'14px 22px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
               <h3 style={{ margin:0, fontSize:'1rem', fontWeight:700 }}>Conferência de Retorno — {envioSel.faccao_nome}</h3>
@@ -312,7 +320,7 @@ export default function Costura() {
               <button onClick={confirmarRetorno} style={{ padding:'7px 22px', borderRadius:8, background:'#16a34a', color:'#fff', border:'none', fontSize:'.85rem', fontWeight:600, cursor:'pointer' }}>✓ Confirmar Retorno</button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );

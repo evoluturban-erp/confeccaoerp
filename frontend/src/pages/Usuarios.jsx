@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTopbar } from '../context/TopbarContext';
 import { useAuth } from '../context/AuthContext';
 import { useApiQuery } from '../hooks/useApi';
+import { useOverlayClose } from '../hooks/useOverlayClose';
 import api from '../services/api';
 
 const PERFIS   = ['Administrador','Gerente','Transportador','Facção'];
@@ -20,14 +21,16 @@ const Sel = ({label,children,...p}) => (
     <select style={{padding:'7px 10px',borderRadius:7,border:'1px solid #d1d5db',fontSize:'.875rem',outline:'none',width:'100%',boxSizing:'border-box',background:'#fff'}} {...p}>{children}</select>
   </div>
 );
-const Overlay = ({children,onClose}) => (
-  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}
-       onClick={e=>e.target===e.currentTarget&&onClose()}>
-    <div style={{background:'#fff',borderRadius:12,width:'100%',maxWidth:600,maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,.2)'}}>
-      {children}
+function Overlay({children,onClose}){
+  const op=useOverlayClose(onClose);
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}} {...op}>
+      <div style={{background:'#fff',borderRadius:12,width:'100%',maxWidth:600,maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,.2)'}}>
+        {children}
+      </div>
     </div>
-  </div>
-);
+  );
+}
 
 const PERFIL_COR = {
   Administrador: {bg:'#fef2f2',text:'#dc2626'},

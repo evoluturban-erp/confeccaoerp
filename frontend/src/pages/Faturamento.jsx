@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTopbar } from '../context/TopbarContext';
 import { useApiQuery } from '../hooks/useApi';
+import { useOverlayClose } from '../hooks/useOverlayClose';
 import api from '../services/api';
 
 const QR = ({ data, size=100 }) => (
@@ -17,6 +18,7 @@ const FORM0 = { cliente:'', numero:'', data_emissao:new Date().toISOString().spl
 
 /* ─── Recibo viewer ─────────────────────────────────────────── */
 function ReciboViewer({ doc, onClose }) {
+  const op = useOverlayClose(onClose);
   if (!doc) return null;
   const itens    = doc.itens || [{ descricao: doc.descricao||'Serviços prestados', quantidade:1, valor_unit:doc.valor||0 }];
   const subtotal = itens.reduce((s,it)=>s+(Number(it.quantidade||1)*Number(it.valor_unit||0)),0);
@@ -26,7 +28,7 @@ function ReciboViewer({ doc, onClose }) {
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}
-      onClick={e=>e.target===e.currentTarget&&onClose()}>
+      {...op}>
       <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:620, maxHeight:'92vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,.25)' }}>
         <div style={{ padding:'12px 20px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span style={{ fontSize:'.9rem', fontWeight:700, color:'#111827' }}>Visualizar Recibo</span>
@@ -127,6 +129,7 @@ function ReciboViewer({ doc, onClose }) {
 
 /* ─── Modal Novo Recibo ──────────────────────────────────────── */
 function ModalNovoRecibo({ onClose, onSave }) {
+  const op = useOverlayClose(onClose);
   const [aba, setAba]   = useState(0);
   const [form, setForm] = useState(FORM0);
 
@@ -153,7 +156,7 @@ function ModalNovoRecibo({ onClose, onSave }) {
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.45)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}
-      onClick={e=>e.target===e.currentTarget&&onClose()}>
+      {...op}>
       <div style={{ background:'#fff', borderRadius:14, width:'100%', maxWidth:640, maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,.2)' }}>
         <div style={{ padding:'14px 22px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <h3 style={{ margin:0, fontSize:'1rem', fontWeight:700 }}>Novo Recibo</h3>

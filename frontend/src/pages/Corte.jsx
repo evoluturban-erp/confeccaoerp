@@ -2,10 +2,20 @@ import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTopbar } from '../context/TopbarContext';
 import { useApiQuery } from '../hooks/useApi';
+import { useOverlayClose } from '../hooks/useOverlayClose';
 import api from '../services/api';
 
 const TAMANHOS = ['PP','P','M','G','GG','XGG'];
 const STEPS = ['Selecionar OP','Grade de Corte','Corte Real','Rendimento'];
+
+function ModalOverlay({ onClose, children }) {
+  const op = useOverlayClose(onClose);
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} {...op}>
+      {children}
+    </div>
+  );
+}
 
 const QR = ({ data, size = 80 }) => (
   <img src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(data)}&size=${size}x${size}&margin=4`}
@@ -259,8 +269,7 @@ export default function Corte() {
 
       {/* Modal wizard */}
       {modal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
-          onClick={e => e.target === e.currentTarget && setModal(false)}>
+        <ModalOverlay onClose={() => setModal(false)}>
           <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 700, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
             <div style={{ padding: '14px 22px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#111827' }}>Lançamento de Corte</h3>
@@ -430,7 +439,7 @@ export default function Corte() {
               }
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );

@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useTopbar } from '../context/TopbarContext';
 import { useApiQuery } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
+import { useOverlayClose } from '../hooks/useOverlayClose';
 import api from '../services/api';
 
 const SETORES=['Todos','Costura','Corte','DTF','Acabamento','Transporte','Geral'];
@@ -20,12 +21,14 @@ const Sel=({label,children,...p})=>(
     <select style={{padding:'7px 10px',borderRadius:7,border:'1px solid #d1d5db',fontSize:'.875rem',outline:'none',width:'100%',boxSizing:'border-box',background:'#fff'}} {...p}>{children}</select>
   </div>
 );
-const Overlay=({children,onClose,width='660px'})=>(
-  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}
-       onClick={e=>e.target===e.currentTarget&&onClose()}>
-    <div style={{background:'#fff',borderRadius:12,width:'100%',maxWidth:width,maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,.2)'}}>{children}</div>
-  </div>
-);
+function Overlay({children,onClose,width='660px'}){
+  const op=useOverlayClose(onClose);
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}} {...op}>
+      <div style={{background:'#fff',borderRadius:12,width:'100%',maxWidth:width,maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,.2)'}}>{children}</div>
+    </div>
+  );
+}
 
 const SETOR_COR={
   Costura: {bg:'#dbeafe',text:'#2563eb'},
