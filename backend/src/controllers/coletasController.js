@@ -34,32 +34,40 @@ async function buscar(req, res) {
 }
 
 async function criar(req, res) {
-  const { op_id, lote_codigo, tipo, origem, destino, quantidade_json, observacao } = req.body;
+  const { op_id, lote_codigo, tipo, origem, destino, quantidade_json, observacao, status, data_retorno_previsto } = req.body;
   if (!tipo || !origem || !destino)
     return res.status(400).json({ error: 'tipo, origem e destino são obrigatórios' });
 
   const { rows } = await db.query(
-    `INSERT INTO coletas_transporte (usuario_id, op_id, lote_codigo, tipo, origem, destino, quantidade_json, observacao)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [req.user.id, op_id, lote_codigo, tipo, origem, destino, JSON.stringify(quantidade_json || {}), observacao]
+    `INSERT INTO coletas_transporte (usuario_id, op_id, lote_codigo, tipo, origem, destino, quantidade_json, observacao, status, data_retorno_previsto)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [req.user.id, op_id, lote_codigo, tipo, origem, destino, JSON.stringify(quantidade_json || {}), observacao, status || 'enviado', data_retorno_previsto || null]
   );
   return res.status(201).json(rows[0]);
 }
 
 async function atualizar(req, res) {
-  const { op_id, lote_codigo, tipo, origem, destino, quantidade_json, observacao } = req.body;
+  const { op_id, lote_codigo, tipo, origem, destino, quantidade_json, observacao, status, data_retorno_previsto, divergencias_json } = req.body;
   const { rows } = await db.query(
     `UPDATE coletas_transporte SET
-       op_id          = COALESCE($1, op_id),
-       lote_codigo    = COALESCE($2, lote_codigo),
-       tipo           = COALESCE($3, tipo),
-       origem         = COALESCE($4, origem),
-       destino        = COALESCE($5, destino),
-       quantidade_json= COALESCE($6, quantidade_json),
-       observacao     = COALESCE($7, observacao),
-       updated_at     = NOW()
-     WHERE id=$8 RETURNING *`,
-    [op_id, lote_codigo, tipo, origem, destino, quantidade_json ? JSON.stringify(quantidade_json) : null, observacao, req.params.id]
+       op_id                 = COALESCE($1, op_id),
+       lote_codigo           = COALESCE($2, lote_codigo),
+       tipo                  = COALESCE($3, tipo),
+       origem                = COALESCE($4, origem),
+       destino               = COALESCE($5, destino),
+       quantidade_json       = COALESCE($6, quantidade_json),
+       observacao            = COALESCE($7, observacao),
+       status                = COALESCE($8, status),
+       data_retorno_previsto = COALESCE($9, data_retorno_previsto),
+       divergencias_json     = COALESCE($10, divergencias_json),
+       updated_at            = NOW()
+     WHERE id=$11 RETURNING *`,
+    [op_id, lote_codigo, tipo, origem, destino,
+     quantidade_json ? JSON.stringify(quantidade_json) : null,
+     observacao, status,
+     data_retorno_previsto || null,
+     divergencias_json ? JSON.stringify(divergencias_json) : null,
+     req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Coleta não encontrada' });
   return res.json(rows[0]);

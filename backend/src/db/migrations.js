@@ -189,6 +189,11 @@ const migrations = [
     ultimo_numero INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (ano, mes)
   )`,
+
+  `ALTER TABLE coletas_transporte
+     ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'enviado',
+     ADD COLUMN IF NOT EXISTS data_retorno_previsto DATE,
+     ADD COLUMN IF NOT EXISTS divergencias_json JSONB DEFAULT '[]'`,
 ];
 
 async function seedAdminUser() {
