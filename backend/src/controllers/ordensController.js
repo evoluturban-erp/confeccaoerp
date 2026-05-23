@@ -1,6 +1,6 @@
 const db = require('../db');
 
-const FASES = ['Cadastrada', 'Corte', 'Costura', 'Acabamento', 'Revisão', 'Expedição', 'Concluída'];
+const FASES = ['Cadastrada', 'Corte', 'Costura', 'Aplicação', 'Acabamento', 'Revisão', 'Expedição', 'Concluída'];
 
 async function listar(req, res) {
   const { status, cliente_id, prioridade } = req.query;
@@ -58,7 +58,7 @@ async function gerarNumeroOP(client) {
 }
 
 async function criar(req, res) {
-  const { cliente_id, prioridade, data_entrega, observacoes, referencias } = req.body;
+  const { cliente_id, prioridade, data_entrega, observacoes, referencias, aplicacao_json } = req.body;
 
   const client = await db.pool.connect();
   try {
@@ -67,9 +67,10 @@ async function criar(req, res) {
     const numero = await gerarNumeroOP(client);
 
     const { rows } = await client.query(
-      `INSERT INTO ordens_producao (numero, cliente_id, status, fase_atual, prioridade, data_entrega, observacoes)
-       VALUES ($1,$2,'Aberta',$3,$4,$5,$6) RETURNING *`,
-      [numero, cliente_id, FASES[0], prioridade || 'Normal', data_entrega, observacoes]
+      `INSERT INTO ordens_producao (numero, cliente_id, status, fase_atual, prioridade, data_entrega, observacoes, aplicacao_json)
+       VALUES ($1,$2,'Aberta',$3,$4,$5,$6,$7) RETURNING *`,
+      [numero, cliente_id, FASES[0], prioridade || 'Normal', data_entrega, observacoes,
+       aplicacao_json ? JSON.stringify(aplicacao_json) : null]
     );
     const op = rows[0];
 
@@ -94,17 +95,20 @@ async function criar(req, res) {
 }
 
 async function atualizar(req, res) {
-  const { cliente_id, prioridade, data_entrega, observacoes, status } = req.body;
+  const { cliente_id, prioridade, data_entrega, observacoes, status, aplicacao_json } = req.body;
   const { rows } = await db.query(
     `UPDATE ordens_producao SET
-       cliente_id   = COALESCE($1, cliente_id),
-       prioridade   = COALESCE($2, prioridade),
-       data_entrega = COALESCE($3, data_entrega),
-       observacoes  = COALESCE($4, observacoes),
-       status       = COALESCE($5, status),
-       updated_at   = NOW()
-     WHERE id = $6 RETURNING *`,
-    [cliente_id, prioridade, data_entrega, observacoes, status, req.params.id]
+       cliente_id    = COALESCE($1, cliente_id),
+       prioridade    = COALESCE($2, prioridade),
+       data_entrega  = COALESCE($3, data_entrega),
+       observacoes   = COALESCE($4, observacoes),
+       status        = COALESCE($5, status),
+       aplicacao_json= COALESCE($6, aplicacao_json),
+       updated_at    = NOW()
+     WHERE id = $7 RETURNING *`,
+    [cliente_id, prioridade, data_entrega, observacoes, status,
+     aplicacao_json !== undefined ? JSON.stringify(aplicacao_json) : null,
+     req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Ordem não encontrada' });
   return res.json(rows[0]);
@@ -126,7 +130,15 @@ async function avancarFase(req, res) {
   if (idx === -1 || idx === FASES.length - 1)
     return res.status(400).json({ error: 'Ordem já está na fase final ou em estado inválido' });
 
-  const novaFase = FASES[idx + 1];
+  let nextIdx = idx + 1;
+  // Skip Aplicação if OP doesn't have it configured
+  if (FASES[nextIdx] === 'Aplicação') {
+    const aplic = op.aplicacao_json;
+    if (!aplic || !aplic.ativo) nextIdx = idx + 2;
+  }
+  if (nextIdx >= FASES.length) nextIdx = FASES.length - 1;
+
+  const novaFase = FASES[nextIdx];
   const novoStatus = novaFase === 'Concluída' ? 'Concluída' : 'Em andamento';
 
   const { rows: upd } = await db.query(

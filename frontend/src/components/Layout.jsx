@@ -19,6 +19,7 @@ const MENU_SECTIONS = [
       { path: '/kanban',          label: 'Kanban',             icon: '🗂' },
       { path: '/corte',           label: 'Corte',              icon: '✂' },
       { path: '/costura',         label: 'Costura',            icon: '🧵' },
+      { path: '/aplicacao',       label: 'Aplicação',          icon: '🎨' },
       { path: '/acabamento',      label: 'Acabamento',         icon: '⚙' },
       { path: '/qualidade',       label: 'Qualidade',          icon: '✓' },
     ],

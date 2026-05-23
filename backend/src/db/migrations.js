@@ -194,6 +194,9 @@ const migrations = [
      ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'enviado',
      ADD COLUMN IF NOT EXISTS data_retorno_previsto DATE,
      ADD COLUMN IF NOT EXISTS divergencias_json JSONB DEFAULT '[]'`,
+
+  `ALTER TABLE ordens_producao
+     ADD COLUMN IF NOT EXISTS aplicacao_json JSONB DEFAULT NULL`,
 ];
 
 async function seedAdminUser() {

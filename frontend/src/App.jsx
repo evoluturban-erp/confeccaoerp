@@ -22,6 +22,7 @@ const AppMobile      = lazy(() => import('./pages/AppMobile'));
 const Corte          = lazy(() => import('./pages/Corte'));
 const Costura        = lazy(() => import('./pages/Costura'));
 const Acabamento     = lazy(() => import('./pages/Acabamento'));
+const Aplicacao      = lazy(() => import('./pages/Aplicacao'));
 const Transporte     = lazy(() => import('./pages/Transporte'));
 const Etiquetas      = lazy(() => import('./pages/Etiquetas'));
 const Faturamento    = lazy(() => import('./pages/Faturamento'));
@@ -98,6 +99,8 @@ function AppRoutes() {
                   <Route path="/corte/*"           element={<Corte />} />
                   <Route path="/costura"           element={<Costura />} />
                   <Route path="/costura/*"         element={<Costura />} />
+                  <Route path="/aplicacao"         element={<Aplicacao />} />
+                  <Route path="/aplicacao/*"       element={<Aplicacao />} />
                   <Route path="/acabamento"        element={<Acabamento />} />
                   <Route path="/acabamento/*"      element={<Acabamento />} />
                   <Route path="/qualidade"         element={<Qualidade />} />

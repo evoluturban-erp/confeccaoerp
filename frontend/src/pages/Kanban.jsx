@@ -4,12 +4,12 @@ import { useApiQuery } from '../hooks/useApi';
 import api from '../services/api';
 
 const COLUNAS = [
-  { fase: 'Corte',     label: 'Corte',          icon: '✂',  cor: '#0891b2', bg: '#cffafe' },
-  { fase: 'Costura',   label: 'Costura',         icon: '🧵', cor: '#7c3aed', bg: '#ede9fe' },
-  { fase: 'Acabamento',label: 'DTF / Bordado',   icon: '🖨', cor: '#d97706', bg: '#fef3c7' },
-  { fase: 'Revisão',   label: 'Acabamento',      icon: '✦',  cor: '#db2777', bg: '#fce7f3' },
-  { fase: 'Qualidade', label: 'Qualidade',        icon: '✓',  cor: '#16a34a', bg: '#f0fdf4' },
-  { fase: 'Expedição', label: 'Expedição',        icon: '🚚', cor: '#ea580c', bg: '#ffedd5' },
+  { fase: 'Corte',      label: 'Corte',      icon: '✂',  cor: '#0891b2', bg: '#cffafe' },
+  { fase: 'Costura',    label: 'Costura',     icon: '🧵', cor: '#7c3aed', bg: '#ede9fe' },
+  { fase: 'Aplicação',  label: 'Aplicação',   icon: '🎨', cor: '#ec4899', bg: '#fdf2f8' },
+  { fase: 'Acabamento', label: 'Acabamento',  icon: '⚙',  cor: '#d97706', bg: '#fef3c7' },
+  { fase: 'Revisão',    label: 'Qualidade',   icon: '✓',  cor: '#16a34a', bg: '#f0fdf4' },
+  { fase: 'Expedição',  label: 'Expedição',   icon: '🚚', cor: '#ea580c', bg: '#ffedd5' },
 ];
 
 function totalPecas(op) {
@@ -19,7 +19,7 @@ function totalPecas(op) {
 }
 
 function progresso(op) {
-  const FASES = ['Cadastrada','Corte','Costura','Acabamento','Revisão','Expedição','Concluída'];
+  const FASES = ['Cadastrada','Corte','Costura','Aplicação','Acabamento','Revisão','Expedição','Concluída'];
   const idx = FASES.indexOf(op.fase_atual);
   return idx < 0 ? 0 : Math.round((idx / (FASES.length - 1)) * 100);
 }
@@ -42,7 +42,7 @@ function KanbanCard({ op }) {
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
         <span style={{ fontSize: '.72rem', fontWeight: 700, color: '#6b7280', fontFamily: 'monospace' }}>
-          #{op.numero_op}
+          #{op.numero}
         </span>
         <span style={{ fontSize: '.68rem', padding: '2px 7px', borderRadius: 999, background: cor + '15', color: cor, fontWeight: 700 }}>
           {d === 0 ? 'hoje' : `${d}d`}
@@ -152,7 +152,7 @@ function TVCard({ op, col }) {
       borderLeft: `3px solid ${col.cor}`, borderRadius: 8, padding: '10px 12px', marginBottom: 6,
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-        <span style={{ fontSize: '.68rem', color: 'rgba(255,255,255,.4)', fontFamily: 'monospace' }}>#{op.numero_op}</span>
+        <span style={{ fontSize: '.68rem', color: 'rgba(255,255,255,.4)', fontFamily: 'monospace' }}>#{op.numero}</span>
         <span style={{ fontSize: '.65rem', color: cor, fontWeight: 700 }}>{d === 0 ? 'hoje' : `${d}d`}</span>
       </div>
       <p style={{ margin: '0 0 2px', fontSize: '.8rem', fontWeight: 700, color: '#fff' }}>{op.cliente_nome || '—'}</p>

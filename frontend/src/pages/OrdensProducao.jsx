@@ -6,17 +6,20 @@ import SeletorTamanhos, { ALL_TAMANHOS, DEFAULT_TAMANHOS } from '../components/S
 import api from '../services/api';
 
 // ── constantes ────────────────────────────────────────────────────────────────
-const FASES = ['Cadastrada','Corte','Costura','Acabamento','Revisão','Expedição','Concluída'];
+const FASES = ['Cadastrada','Corte','Costura','Aplicação','Acabamento','Revisão','Expedição','Concluída'];
 
 const FASE_COR = {
-  Cadastrada: { bg:'#f3f4f6', text:'#6b7280', border:'#d1d5db' },
-  Corte:      { bg:'#ede9fe', text:'#7c3aed', border:'#c4b5fd' },
-  Costura:    { bg:'#dbeafe', text:'#2563eb', border:'#93c5fd' },
-  Acabamento: { bg:'#ffedd5', text:'#ea580c', border:'#fdba74' },
-  'Revisão':  { bg:'#cffafe', text:'#0891b2', border:'#67e8f9' },
-  Expedição:  { bg:'#dcfce7', text:'#16a34a', border:'#86efac' },
-  Concluída:  { bg:'#166534', text:'#fff',    border:'#15803d' },
+  Cadastrada:  { bg:'#f3f4f6', text:'#6b7280', border:'#d1d5db' },
+  Corte:       { bg:'#ede9fe', text:'#7c3aed', border:'#c4b5fd' },
+  Costura:     { bg:'#dbeafe', text:'#2563eb', border:'#93c5fd' },
+  'Aplicação': { bg:'#fdf2f8', text:'#ec4899', border:'#f9a8d4' },
+  Acabamento:  { bg:'#ffedd5', text:'#ea580c', border:'#fdba74' },
+  'Revisão':   { bg:'#cffafe', text:'#0891b2', border:'#67e8f9' },
+  Expedição:   { bg:'#dcfce7', text:'#16a34a', border:'#86efac' },
+  Concluída:   { bg:'#166534', text:'#fff',    border:'#15803d' },
 };
+
+const TIPOS_APLICACAO = ['Bordado','Silk Screen','DTF','Sublimação','Estamparia','Patch/Aplique'];
 const STATUS_COR = {
   'Aberta':       { bg:'#eff6ff', text:'#2563eb' },
   'Em andamento': { bg:'#fefce8', text:'#ca8a04' },
@@ -32,7 +35,8 @@ const FORM0 = {
   cliente_id:'', prioridade:'Normal', data_entrega:'', observacoes:'',
   referencias:[],
   custos:{ materia_prima:'', corte:'', costura:'', dtf:'', acabamento:'', transporte:'', valor_venda:'' },
-  planejamento:{ Corte:'', Costura:'', Acabamento:'', 'Revisão':'', Expedição:'' },
+  planejamento:{ Corte:'', Costura:'', 'Aplicação':'', Acabamento:'', 'Revisão':'', Expedição:'' },
+  aplicacao:{ ativo:false, tipos:[], posicao:'after', fornecedor_id:'', descricao:'' },
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -255,6 +259,75 @@ function TabPlan({form,setForm}) {
   );
 }
 
+// ── Tab aplicação ─────────────────────────────────────────────────────────────
+function TabAplicacao({form,setForm,fornecedores}) {
+  const ap=form.aplicacao;
+  const upd=(k,v)=>setForm(f=>({...f,aplicacao:{...f.aplicacao,[k]:v}}));
+  const toggleTipo=(tipo)=>{
+    const next=ap.tipos.includes(tipo)?ap.tipos.filter(t=>t!==tipo):[...ap.tipos,tipo];
+    upd('tipos',next);
+  };
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',borderRadius:10,background:'#f8fafc',border:'1px solid #e5e7eb',cursor:'pointer'}}
+        onClick={()=>upd('ativo',!ap.ativo)}>
+        <input type="checkbox" checked={ap.ativo} onChange={e=>upd('ativo',e.target.checked)}
+          style={{width:18,height:18,accentColor:'#ec4899',cursor:'pointer',flexShrink:0}} onClick={e=>e.stopPropagation()}/>
+        <div>
+          <p style={{margin:0,fontSize:'.88rem',fontWeight:700,color:'#111827'}}>Esta OP precisa de serviço de aplicação</p>
+          <p style={{margin:0,fontSize:'.72rem',color:'#6b7280'}}>Bordado, Silk Screen, DTF, Sublimação, Estamparia, Patch/Aplique</p>
+        </div>
+      </div>
+      {ap.ativo&&(
+        <>
+          <div>
+            <label style={{fontSize:'.78rem',fontWeight:600,color:'#374151',display:'block',marginBottom:8}}>Tipos de aplicação *</label>
+            <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+              {TIPOS_APLICACAO.map(tipo=>{
+                const on=ap.tipos.includes(tipo);
+                return(
+                  <button key={tipo} type="button" onClick={()=>toggleTipo(tipo)}
+                    style={{padding:'6px 14px',borderRadius:8,border:`1px solid ${on?'#ec4899':'#e5e7eb'}`,background:on?'#fdf2f8':'#f9fafb',color:on?'#ec4899':'#9ca3af',fontSize:'.82rem',fontWeight:on?700:400,cursor:'pointer'}}>
+                    {tipo}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <label style={{fontSize:'.78rem',fontWeight:600,color:'#374151',display:'block',marginBottom:8}}>Posição no fluxo</label>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              {[{val:'before',label:'Antes da costura',desc:'Aplicação no tecido/corte'},
+                {val:'after', label:'Após a costura',  desc:'Aplicação na peça costurada'}].map(opt=>(
+                <div key={opt.val} onClick={()=>upd('posicao',opt.val)}
+                  style={{padding:'12px 14px',borderRadius:10,border:`2px solid ${ap.posicao===opt.val?'#ec4899':'#e5e7eb'}`,background:ap.posicao===opt.val?'#fdf2f8':'#f9fafb',cursor:'pointer'}}>
+                  <p style={{margin:'0 0 3px',fontSize:'.85rem',fontWeight:700,color:ap.posicao===opt.val?'#ec4899':'#374151'}}>{opt.label}</p>
+                  <p style={{margin:0,fontSize:'.72rem',color:'#6b7280'}}>{opt.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:4}}>
+            <label style={{fontSize:'.78rem',fontWeight:600,color:'#374151'}}>Fornecedor de aplicação</label>
+            <select value={ap.fornecedor_id} onChange={e=>upd('fornecedor_id',e.target.value)}
+              style={{padding:'8px 10px',borderRadius:7,border:'1px solid #d1d5db',fontSize:'.875rem',outline:'none',background:'#fff'}}>
+              <option value="">Selecionar fornecedor...</option>
+              {fornecedores.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
+            </select>
+            {fornecedores.length===0&&<p style={{margin:0,fontSize:'.72rem',color:'#9ca3af'}}>Nenhum fornecedor de Aplicação cadastrado. Acesse Fornecedores → setor Aplicação.</p>}
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:4}}>
+            <label style={{fontSize:'.78rem',fontWeight:600,color:'#374151'}}>Descrição / Arte</label>
+            <textarea rows={3} value={ap.descricao} onChange={e=>upd('descricao',e.target.value)}
+              placeholder="Descreva a arte, posição, cores, especificações técnicas..."
+              style={{padding:'8px 10px',borderRadius:7,border:'1px solid #d1d5db',fontSize:'.875rem',resize:'vertical',outline:'none',fontFamily:'inherit'}}/>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── LinhaOP ───────────────────────────────────────────────────────────────────
 function LinhaOP({op,onVer}) {
   const dias=diasRest(op.data_entrega);
@@ -310,6 +383,7 @@ export default function OrdensProducao() {
 
   const {data:ordens=[],isLoading,refetch}=useApiQuery(['ordens'],()=>api.get('/ordens'));
   const {data:clientes=[]}=useApiQuery(['clientes'],()=>api.get('/clientes'));
+  const {data:fornAplic=[]}=useApiQuery(['forn-aplic-op'],()=>api.get('/fornecedores?setor=Aplicação'));
 
   useEffect(()=>{
     setAction({label:'Nova OP',onClick:()=>{setForm(FORM0);setAba(0);setModalNova(true);}});
@@ -342,6 +416,7 @@ export default function OrdensProducao() {
         prioridade:form.prioridade,data_entrega:form.data_entrega||null,
         observacoes:form.observacoes,
         referencias:form.referencias.map(r=>({codigo:r.codigo,nome:r.nome,cores:r.cores,grade_json:r.grade_json})),
+        aplicacao_json:form.aplicacao.ativo?{...form.aplicacao}:null,
       });
       refetch();setModalNova(false);setForm(FORM0);setAba(0);
     }catch(e){alert(e.response?.data?.error||'Erro ao salvar OP');}
@@ -355,7 +430,7 @@ export default function OrdensProducao() {
     }catch(e){alert(e.response?.data?.error||'Erro ao avançar fase');}
   };
 
-  const ABAS=['Dados gerais','Referências e grade','Custos estimados','Planejamento'];
+  const ABAS=['Dados gerais','Referências e grade','Custos estimados','Planejamento','Aplicação'];
 
   return(
     <div style={{display:'flex',flexDirection:'column',gap:20}}>
@@ -452,6 +527,7 @@ export default function OrdensProducao() {
             {aba===1&&<TabRefs form={form} setForm={setForm}/>}
             {aba===2&&<TabCustos form={form} setForm={setForm}/>}
             {aba===3&&<TabPlan form={form} setForm={setForm}/>}
+            {aba===4&&<TabAplicacao form={form} setForm={setForm} fornecedores={fornAplic}/>}
           </div>
           <div style={{padding:'12px 22px',borderTop:'1px solid #f1f5f9',flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <div style={{display:'flex',gap:5}}>
@@ -527,6 +603,24 @@ export default function OrdensProducao() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {detalhe.aplicacao_json?.ativo&&(
+              <div style={{marginBottom:18,padding:'12px 14px',borderRadius:10,background:'#fdf2f8',border:'1px solid #f9a8d4'}}>
+                <p style={{margin:'0 0 8px',fontSize:'.75rem',fontWeight:700,color:'#9d174d',textTransform:'uppercase',letterSpacing:'.5px'}}>Serviço de Aplicação</p>
+                <div style={{display:'flex',flexWrap:'wrap',gap:10,fontSize:'.82rem',color:'#374151'}}>
+                  {detalhe.aplicacao_json.tipos?.length>0&&(
+                    <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+                      {detalhe.aplicacao_json.tipos.map(t=>(
+                        <span key={t} style={{padding:'2px 9px',borderRadius:999,background:'#fdf2f8',border:'1px solid #f9a8d4',fontSize:'.75rem',fontWeight:600,color:'#ec4899'}}>{t}</span>
+                      ))}
+                    </div>
+                  )}
+                  <span style={{padding:'2px 9px',borderRadius:999,background:'#f3f4f6',color:'#374151',fontSize:'.75rem'}}>
+                    {detalhe.aplicacao_json.posicao==='before'?'Antes da costura':'Após a costura'}
+                  </span>
+                </div>
+                {detalhe.aplicacao_json.descricao&&<p style={{margin:'8px 0 0',fontSize:'.82rem',color:'#831843'}}>{detalhe.aplicacao_json.descricao}</p>}
               </div>
             )}
             {detalhe.observacoes&&(
