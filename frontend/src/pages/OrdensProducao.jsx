@@ -28,7 +28,7 @@ const PRIO_COR = {
   Urgente: { bg:'#fee2e2', text:'#dc2626' },
 };
 const FORM0 = {
-  numero:'', cliente_id:'', prioridade:'Normal', data_entrega:'', observacoes:'',
+  cliente_id:'', prioridade:'Normal', data_entrega:'', observacoes:'',
   referencias:[],
   custos:{ materia_prima:'', corte:'', costura:'', dtf:'', acabamento:'', transporte:'', valor_venda:'' },
   planejamento:{ Corte:'', Costura:'', Acabamento:'', 'Revisão':'', Expedição:'' },
@@ -325,11 +325,10 @@ export default function OrdensProducao() {
   }),[ordens,filtros]);
 
   const salvar=async()=>{
-    if(!form.numero.trim()){alert('Informe o número da OP');setAba(0);return;}
     setSalvando(true);
     try{
       await api.post('/ordens',{
-        numero:form.numero,cliente_id:form.cliente_id||null,
+        cliente_id:form.cliente_id||null,
         prioridade:form.prioridade,data_entrega:form.data_entrega||null,
         observacoes:form.observacoes,
         referencias:form.referencias.map(r=>({codigo:r.codigo,nome:r.nome,cores:r.cores,grade_json:r.grade_json})),
@@ -425,12 +424,9 @@ export default function OrdensProducao() {
           <div style={{flex:1,overflowY:'auto',padding:'18px 22px'}}>
             {aba===0&&(
               <div style={{display:'flex',flexDirection:'column',gap:12}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                  <Inp label="Número da OP *" placeholder="Ex: OP-2026-001" value={form.numero} onChange={e=>setForm(f=>({...f,numero:e.target.value}))}/>
-                  <Sel label="Prioridade" value={form.prioridade} onChange={e=>setForm(f=>({...f,prioridade:e.target.value}))}>
-                    {['Normal','Alta','Urgente'].map(p=><option key={p} value={p}>{p}</option>)}
-                  </Sel>
-                </div>
+                <Sel label="Prioridade" value={form.prioridade} onChange={e=>setForm(f=>({...f,prioridade:e.target.value}))}>
+                  {['Normal','Alta','Urgente'].map(p=><option key={p} value={p}>{p}</option>)}
+                </Sel>
                 <Sel label="Cliente" value={form.cliente_id} onChange={e=>setForm(f=>({...f,cliente_id:e.target.value}))}>
                   <option value="">Selecionar cliente...</option>{clientes.map(c=><option key={c.id} value={c.id}>{c.razao_social}</option>)}
                 </Sel>

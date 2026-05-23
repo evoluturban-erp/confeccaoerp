@@ -37,13 +37,34 @@ async function buscar(req, res) {
   return res.json({ ...rows[0], referencias: refs });
 }
 
+async function gerarNumeroOP(client) {
+  const now = new Date();
+  const ano = now.getFullYear();
+  const mes = now.getMonth() + 1;
+
+  const { rows } = await client.query(
+    `INSERT INTO op_sequencial (ano, mes, ultimo_numero) VALUES ($1, $2, 1)
+     ON CONFLICT (ano, mes) DO UPDATE
+       SET ultimo_numero = op_sequencial.ultimo_numero + 1
+     RETURNING ultimo_numero`,
+    [ano, mes]
+  );
+
+  const seq  = rows[0].ultimo_numero;
+  const aa   = String(ano).slice(-2);
+  const mm   = String(mes).padStart(2, '0');
+  const nnnn = String(seq).padStart(4, '0');
+  return `OP-${aa}${mm}-${nnnn}`;
+}
+
 async function criar(req, res) {
-  const { numero, cliente_id, prioridade, data_entrega, observacoes, referencias } = req.body;
-  if (!numero) return res.status(400).json({ error: 'numero é obrigatório' });
+  const { cliente_id, prioridade, data_entrega, observacoes, referencias } = req.body;
 
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
+
+    const numero = await gerarNumeroOP(client);
 
     const { rows } = await client.query(
       `INSERT INTO ordens_producao (numero, cliente_id, status, fase_atual, prioridade, data_entrega, observacoes)

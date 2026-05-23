@@ -38,7 +38,7 @@ async function login(req, res) {
       setores: usuario.setores,
     };
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '8h' });
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '30d' });
 
     return res.json({ token, usuario: payload });
   } catch (err) {

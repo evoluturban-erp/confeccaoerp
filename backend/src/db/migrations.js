@@ -182,6 +182,13 @@ const migrations = [
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
   )`,
+
+  `CREATE TABLE IF NOT EXISTS op_sequencial (
+    ano INTEGER NOT NULL,
+    mes INTEGER NOT NULL,
+    ultimo_numero INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (ano, mes)
+  )`,
 ];
 
 async function seedAdminUser() {
