@@ -74,7 +74,7 @@ function Stepper({ step }) {
   );
 }
 
-const FORM0 = { op: null, fornecedor: '', grade: {}, kg_entrada: {}, pecas_cortadas: {} };
+const FORM0 = { op: null, fornecedor: '', grade: {}, kg_entrada: {}, pecas_cortadas: {}, kg_enviado_total: '', preco_kg: '' };
 
 function mergeGradeFromRefs(refs) {
   const merged = {};
@@ -108,12 +108,14 @@ export default function Corte() {
   const [saving, setSaving] = useState(false);
   const [abaLabel, setAbaLabel] = useState(null);
   const [fornecedorManual, setFornecedorManual] = useState(false);
+  const [entradaVinc, setEntradaVinc] = useState(null);
 
   const { data: ordens = [], isLoading } = useApiQuery(['ordens-corte'], () => api.get('/ordens'));
   const { data: fornecedores = [] } = useApiQuery(['fornecedores'], () => api.get('/fornecedores'));
+  const { data: entradas = [] } = useApiQuery(['entradas-corte'], () => api.get('/entradas-malha'));
 
   useEffect(() => {
-    setAction({ label: 'Iniciar Corte', onClick: () => { setForm(FORM0); setStep(0); setModal(true); setFornecedorManual(false); } });
+    setAction({ label: 'Iniciar Corte', onClick: () => { setForm(FORM0); setStep(0); setModal(true); setFornecedorManual(false); setEntradaVinc(null); } });
     return () => clearAction();
   }, []);
 
@@ -142,6 +144,7 @@ export default function Corte() {
     setStep(0);
     setModal(true);
     setFornecedorManual(false);
+    setEntradaVinc(null);
     setLoadingRefs(true);
     try {
       const { data: refs } = await api.get(`/ordens/${op.id}/referencias`);
@@ -161,10 +164,30 @@ export default function Corte() {
   const setKg    = (cor, val)      => setForm(f => ({ ...f, kg_entrada:     { ...f.kg_entrada,     [cor]: val } }));
   const setPecas = (cor, val)      => setForm(f => ({ ...f, pecas_cortadas: { ...f.pecas_cortadas, [cor]: val } }));
 
-  const planCor    = (cor) => tamanhos.reduce((s, t) => s + (Number(form.grade[cor]?.[t]) || 0), 0);
-  const totalCorte = Object.values(form.pecas_cortadas).reduce((s, v) => s + (Number(v) || 0), 0);
-  const totalPlan  = cores.reduce((s, c) => s + planCor(c), 0);
-  const aprovGeral = totalPlan > 0 ? ((totalCorte / totalPlan) * 100).toFixed(1) : '—';
+  const planCor         = (cor) => tamanhos.reduce((s, t) => s + (Number(form.grade[cor]?.[t]) || 0), 0);
+  const totalCorte      = Object.values(form.pecas_cortadas).reduce((s, v) => s + (Number(v) || 0), 0);
+  const totalPlan       = cores.reduce((s, c) => s + planCor(c), 0);
+  const aprovGeral      = totalPlan > 0 ? ((totalCorte / totalPlan) * 100).toFixed(1) : '—';
+  const totalKgConsumido= Object.values(form.kg_entrada).reduce((s, v) => s + (Number(v) || 0), 0);
+  const kgEnviado       = Number(form.kg_enviado_total) || 0;
+  const precoKg         = Number(form.preco_kg) || 0;
+
+  // ── Rendimento por kg (pcs/kg) ──────────────────────────────────────────────
+  const rendKgReal     = totalKgConsumido > 0 ? totalCorte / totalKgConsumido : null;
+  const rendKgEsperado = kgEnviado > 0 ? totalPlan / kgEnviado : null;
+  const rendKgDiff     = rendKgReal !== null && rendKgEsperado !== null ? rendKgReal - rendKgEsperado : null;
+
+  // ── Custo por peça ───────────────────────────────────────────────────────────
+  const custoPeca = (totalCorte > 0 && totalKgConsumido > 0 && precoKg > 0)
+    ? (totalKgConsumido * precoKg) / totalCorte
+    : null;
+
+  // ── Sobra de malha ───────────────────────────────────────────────────────────
+  const sobraKg  = kgEnviado > 0 ? kgEnviado - totalKgConsumido : null;
+  const sobraPct = kgEnviado > 0 ? ((kgEnviado - totalKgConsumido) / kgEnviado * 100) : null;
+
+  const fmtBrl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const fmtNum = (v, dec = 2) => v.toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
   const rendimento = cores.map(cor => {
     const consumido  = Number(form.kg_entrada[cor]) || 0;
@@ -175,15 +198,55 @@ export default function Corte() {
     return { cor, consumido, cortadas, planejadas, diff, rend };
   });
 
+  // helper para vincular entrada de malha e auto-preencher campos
+  const vincularEntrada = (entrada) => {
+    setEntradaVinc(entrada);
+    if (!entrada) return;
+    const totalKg = (entrada.cores || entrada.itens || []).reduce((s, c) => s + (Number(c.kg_malha) || 0), 0);
+    const totalVal= (entrada.cores || entrada.itens || []).reduce((s, c) => s + (Number(c.kg_malha) || 0) * (Number(c.preco_kg_malha) || 0), 0);
+    const precoMed= totalKg > 0 ? totalVal / totalKg : 0;
+    setForm(f => ({ ...f, kg_enviado_total: totalKg > 0 ? totalKg.toFixed(2) : f.kg_enviado_total, preco_kg: precoMed > 0 ? precoMed.toFixed(2) : f.preco_kg }));
+  };
+
   const handleFinalizar = async () => {
     if (!form.op) return;
     setSaving(true);
     try {
-      await api.post(`/ordens/${form.op.id}/avancar-fase`);
+      const payload = {
+        fornecedor:             form.fornecedor,
+        grade:                  form.grade,
+        kg_consumido_por_cor:   form.kg_entrada,
+        pecas_cortadas_por_cor: form.pecas_cortadas,
+        entrada_malha_id:       entradaVinc?.id || null,
+        kg_enviado_total:       kgEnviado || null,
+        preco_kg:               precoKg || null,
+        // indicadores calculados
+        total_pecas_planejadas: totalPlan,
+        total_pecas_cortadas:   totalCorte,
+        total_kg_consumido:     totalKgConsumido,
+        aproveitamento_pct:     totalPlan > 0 ? parseFloat(aprovGeral) : null,
+        rendimento_kg_real:     rendKgReal   !== null ? parseFloat(rendKgReal.toFixed(4))   : null,
+        rendimento_kg_esperado: rendKgEsperado !== null ? parseFloat(rendKgEsperado.toFixed(4)) : null,
+        custo_peca:             custoPeca !== null ? parseFloat(custoPeca.toFixed(4))  : null,
+        sobra_kg:               sobraKg   !== null ? parseFloat(sobraKg.toFixed(4))   : null,
+        sobra_pct:              sobraPct  !== null ? parseFloat(sobraPct.toFixed(2))  : null,
+      };
+      await api.post(`/ordens/${form.op.id}/corte`, payload);
       queryClient.invalidateQueries({ queryKey: ['ordens-corte'] });
       setModal(false);
-    } catch {
-      alert('Erro ao finalizar corte. Tente novamente.');
+    } catch (err) {
+      // Se o endpoint de corte não existir, avança a fase mesmo assim
+      if (err?.response?.status === 404) {
+        try {
+          await api.post(`/ordens/${form.op.id}/avancar-fase`);
+          queryClient.invalidateQueries({ queryKey: ['ordens-corte'] });
+          setModal(false);
+        } catch {
+          alert('Erro ao finalizar corte. Tente novamente.');
+        }
+      } else {
+        alert('Erro ao finalizar corte. Tente novamente.');
+      }
     } finally {
       setSaving(false);
     }
@@ -401,10 +464,57 @@ export default function Corte() {
 
               {/* ── Passo 3: Corte Real ───────────────────────────────── */}
               {step === 2 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                   <p style={{ margin: 0, fontSize: '.85rem', color: '#6b7280' }}>
                     Informe o kg de malha consumido e as peças efetivamente cortadas por cor.
                   </p>
+
+                  {/* Entrada de malha + campos globais */}
+                  <div style={{ padding: '14px 16px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e5e7eb' }}>
+                    <p style={{ margin: '0 0 10px', fontSize: '.78rem', fontWeight: 700, color: '#374151' }}>Dados de malha para indicadores</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {/* Vincular entrada */}
+                      <div>
+                        <label style={labelStyle}>Entrada de malha (opcional — auto-preenche preço e kg)</label>
+                        <select
+                          value={entradaVinc?.id || ''}
+                          onChange={e => {
+                            const ent = entradas.find(x => String(x.id) === e.target.value) || null;
+                            vincularEntrada(ent);
+                          }}
+                          style={{ ...inputStyle, fontSize: '.82rem' }}>
+                          <option value="">Selecione uma entrada de malha...</option>
+                          {entradas.map(e => (
+                            <option key={e.id} value={e.id}>
+                              {e.numero_controle || `#${e.id}`} — {e.tipo_malha || e.fornecedor || ''}
+                              {e.data_entrada ? ` — ${new Date(e.data_entrada).toLocaleDateString('pt-BR')}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {/* Kg enviado + preço/kg */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <div>
+                          <label style={labelStyle}>Kg total enviado para o corte</label>
+                          <input type="number" min="0" step="0.01"
+                            value={form.kg_enviado_total}
+                            onChange={e => setForm(f => ({ ...f, kg_enviado_total: e.target.value }))}
+                            placeholder="0.00"
+                            style={inputStyle} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Preço médio da malha (R$/kg)</label>
+                          <input type="number" min="0" step="0.01"
+                            value={form.preco_kg}
+                            onChange={e => setForm(f => ({ ...f, preco_kg: e.target.value }))}
+                            placeholder="0.00"
+                            style={inputStyle} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tabela por cor */}
                   {cores.length === 0
                     ? <p style={{ color: '#9ca3af', fontSize: '.82rem' }}>Nenhuma cor cadastrada na OP.</p>
                     : (
@@ -439,60 +549,157 @@ export default function Corte() {
 
               {/* ── Passo 4: Rendimento ───────────────────────────────── */}
               {step === 3 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {/* Cards de resumo */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
-                    <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '14px', border: '1px solid #bbf7d0' }}>
-                      <p style={{ margin: 0, fontSize: '.7rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Peças cortadas</p>
-                      <p style={{ margin: '4px 0 0', fontSize: '1.5rem', fontWeight: 800, color: '#16a34a' }}>{totalCorte}</p>
-                      <p style={{ margin: '2px 0 0', fontSize: '.72rem', color: '#6b7280' }}>de {totalPlan} planejadas</p>
-                    </div>
-                    <div style={{ background: totalCorte >= totalPlan ? '#f0fdf4' : '#fef2f2', borderRadius: 10, padding: '14px', border: `1px solid ${totalCorte >= totalPlan ? '#bbf7d0' : '#fecaca'}` }}>
-                      <p style={{ margin: 0, fontSize: '.7rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Diferença</p>
-                      <p style={{ margin: '4px 0 0', fontSize: '1.5rem', fontWeight: 800, color: totalCorte >= totalPlan ? '#16a34a' : '#dc2626' }}>
-                        {totalCorte - totalPlan >= 0 ? '+' : ''}{totalCorte - totalPlan}
-                      </p>
-                      <p style={{ margin: '2px 0 0', fontSize: '.72rem', color: '#6b7280' }}>peças</p>
-                    </div>
-                    <div style={{ background: '#fef3c7', borderRadius: 10, padding: '14px', border: '1px solid #fcd34d' }}>
-                      <p style={{ margin: 0, fontSize: '.7rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Aproveitamento</p>
-                      <p style={{ margin: '4px 0 0', fontSize: '1.5rem', fontWeight: 800, color: '#d97706' }}>{aprovGeral}%</p>
-                      <p style={{ margin: '2px 0 0', fontSize: '.72rem', color: '#6b7280' }}>rendimento geral</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                  {/* ── Seção A: Peças — aproveitamento geral ── */}
+                  <div>
+                    <p style={{ margin: '0 0 8px', fontSize: '.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.6px' }}>Aproveitamento de peças</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+                      <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '12px 14px', border: '1px solid #bbf7d0' }}>
+                        <p style={{ margin: 0, fontSize: '.68rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Peças cortadas</p>
+                        <p style={{ margin: '3px 0 0', fontSize: '1.4rem', fontWeight: 800, color: '#16a34a' }}>{totalCorte}</p>
+                        <p style={{ margin: '2px 0 0', fontSize: '.7rem', color: '#6b7280' }}>de {totalPlan} planejadas</p>
+                      </div>
+                      <div style={{ background: totalCorte >= totalPlan ? '#f0fdf4' : '#fef2f2', borderRadius: 10, padding: '12px 14px', border: `1px solid ${totalCorte >= totalPlan ? '#bbf7d0' : '#fecaca'}` }}>
+                        <p style={{ margin: 0, fontSize: '.68rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Diferença</p>
+                        <p style={{ margin: '3px 0 0', fontSize: '1.4rem', fontWeight: 800, color: totalCorte >= totalPlan ? '#16a34a' : '#dc2626' }}>
+                          {totalCorte - totalPlan >= 0 ? '+' : ''}{totalCorte - totalPlan}
+                        </p>
+                        <p style={{ margin: '2px 0 0', fontSize: '.7rem', color: '#6b7280' }}>peças</p>
+                      </div>
+                      <div style={{ background: '#fef3c7', borderRadius: 10, padding: '12px 14px', border: '1px solid #fcd34d' }}>
+                        <p style={{ margin: 0, fontSize: '.68rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Aproveitamento</p>
+                        <p style={{ margin: '3px 0 0', fontSize: '1.4rem', fontWeight: 800, color: '#d97706' }}>{aprovGeral}%</p>
+                        <p style={{ margin: '2px 0 0', fontSize: '.7rem', color: '#6b7280' }}>peças cortadas / planejadas</p>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Detalhe por cor */}
-                  {cores.length > 0 && (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ borderCollapse: 'collapse', fontSize: '.82rem', width: '100%' }}>
-                        <thead><tr style={{ background: '#f8fafc' }}>
-                          {['Cor','Kg consumido','Pcs planejadas','Pcs cortadas','Diferença','% Rendimento'].map(h => (
-                            <th key={h} style={{ padding: '8px 12px', fontWeight: 700, color: '#374151', textAlign: 'center', border: '1px solid #e5e7eb', fontSize: '.7rem', textTransform: 'uppercase' }}>{h}</th>
-                          ))}
-                        </tr></thead>
-                        <tbody>
-                          {rendimento.map(r => (
-                            <tr key={r.cor}>
-                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', fontWeight: 600, color: '#111827', textAlign: 'center' }}>{r.cor}</td>
-                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#374151' }}>{r.consumido > 0 ? `${r.consumido} kg` : '—'}</td>
-                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#6b7280' }}>{r.planejadas}</td>
-                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', fontWeight: 700, color: r.cortadas >= r.planejadas ? '#16a34a' : '#dc2626' }}>{r.cortadas}</td>
-                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
-                                <span style={{ fontWeight: 700, color: r.diff >= 0 ? '#16a34a' : '#dc2626' }}>
-                                  {r.diff >= 0 ? '+' : ''}{r.diff}
-                                </span>
-                              </td>
-                              <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
-                                <span style={{ padding: '3px 8px', borderRadius: 999, background: '#fef3c7', color: '#d97706', fontSize: '.75rem', fontWeight: 700 }}>
-                                  {r.rend}%
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                  {/* ── Seção B: Rendimento por kg + Custo por peça ── */}
+                  <div>
+                    <p style={{ margin: '0 0 8px', fontSize: '.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.6px' }}>Rendimento por kg de malha</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      {/* Rendimento/kg */}
+                      <div style={{ background: rendKgReal === null ? '#f9fafb' : rendKgReal >= 5 ? '#f0fdf4' : '#fefce8', borderRadius: 10, padding: '12px 14px', border: `1px solid ${rendKgReal === null ? '#e5e7eb' : rendKgReal >= 5 ? '#bbf7d0' : '#fcd34d'}` }}>
+                        <p style={{ margin: 0, fontSize: '.68rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Rendimento real</p>
+                        <p style={{ margin: '3px 0 0', fontSize: '1.4rem', fontWeight: 800, color: rendKgReal === null ? '#9ca3af' : rendKgReal >= 5 ? '#16a34a' : '#d97706' }}>
+                          {rendKgReal !== null ? fmtNum(rendKgReal) : '—'}
+                        </p>
+                        <p style={{ margin: '2px 0 0', fontSize: '.7rem', color: '#6b7280' }}>
+                          pcs/kg {totalKgConsumido > 0 ? `(${fmtNum(totalKgConsumido, 2)} kg consumidos)` : ''}
+                        </p>
+                      </div>
+                      {/* Custo/peça */}
+                      <div style={{ background: custoPeca !== null ? '#eff6ff' : '#f9fafb', borderRadius: 10, padding: '12px 14px', border: `1px solid ${custoPeca !== null ? '#bfdbfe' : '#e5e7eb'}` }}>
+                        <p style={{ margin: 0, fontSize: '.68rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Custo por peça</p>
+                        <p style={{ margin: '3px 0 0', fontSize: '1.4rem', fontWeight: 800, color: custoPeca !== null ? '#2563eb' : '#9ca3af' }}>
+                          {custoPeca !== null ? fmtBrl(custoPeca) : '—'}
+                        </p>
+                        <p style={{ margin: '2px 0 0', fontSize: '.7rem', color: '#6b7280' }}>
+                          {precoKg > 0 ? `a ${fmtBrl(precoKg)}/kg` : 'informe o preço/kg no passo 3'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── Seção C: Comparativo esperado vs real ── */}
+                  {(rendKgReal !== null || rendKgEsperado !== null) && (
+                    <div>
+                      <p style={{ margin: '0 0 8px', fontSize: '.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.6px' }}>Comparativo — esperado vs real</p>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                        <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '.68rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Esperado</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '1.3rem', fontWeight: 800, color: '#374151' }}>
+                            {rendKgEsperado !== null ? fmtNum(rendKgEsperado) : '—'}
+                          </p>
+                          <p style={{ margin: '2px 0 0', fontSize: '.7rem', color: '#6b7280' }}>pcs/kg planejado</p>
+                        </div>
+                        <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '.68rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Real</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '1.3rem', fontWeight: 800, color: rendKgReal === null ? '#9ca3af' : rendKgReal >= 5 ? '#16a34a' : '#d97706' }}>
+                            {rendKgReal !== null ? fmtNum(rendKgReal) : '—'}
+                          </p>
+                          <p style={{ margin: '2px 0 0', fontSize: '.7rem', color: '#6b7280' }}>pcs/kg obtido</p>
+                        </div>
+                        <div style={{ background: rendKgDiff === null ? '#f8fafc' : rendKgDiff >= 0 ? '#f0fdf4' : '#fef2f2', borderRadius: 10, padding: '12px 14px', border: `1px solid ${rendKgDiff === null ? '#e5e7eb' : rendKgDiff >= 0 ? '#bbf7d0' : '#fecaca'}`, textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '.68rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Variação</p>
+                          {rendKgDiff !== null ? (
+                            <>
+                              <p style={{ margin: '3px 0 0', fontSize: '1rem', fontWeight: 800, color: rendKgDiff >= 0 ? '#16a34a' : '#dc2626' }}>
+                                {rendKgDiff >= 0 ? '↑' : '↓'} {rendKgDiff >= 0 ? '+' : ''}{fmtNum(rendKgDiff)} pcs/kg
+                              </p>
+                              <p style={{ margin: '2px 0 0', fontSize: '.7rem', color: rendKgDiff >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
+                                {rendKgDiff >= 0 ? 'acima' : 'abaixo'} do esperado
+                              </p>
+                            </>
+                          ) : (
+                            <p style={{ margin: '3px 0 0', fontSize: '1rem', fontWeight: 800, color: '#9ca3af' }}>—</p>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
+
+                  {/* ── Seção D: Sobra de malha ── */}
+                  {kgEnviado > 0 && (
+                    <div>
+                      <p style={{ margin: '0 0 8px', fontSize: '.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.6px' }}>Sobra de malha</p>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+                        <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '.68rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Kg enviado</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '1.3rem', fontWeight: 800, color: '#374151' }}>{fmtNum(kgEnviado)} kg</p>
+                        </div>
+                        <div style={{ background: '#f8fafc', borderRadius: 10, padding: '12px 14px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '.68rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Kg consumido</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '1.3rem', fontWeight: 800, color: '#374151' }}>{fmtNum(totalKgConsumido)} kg</p>
+                        </div>
+                        <div style={{ background: sobraKg !== null && sobraKg >= 0 ? '#f0fdf4' : '#fef2f2', borderRadius: 10, padding: '12px 14px', border: `1px solid ${sobraKg !== null && sobraKg >= 0 ? '#bbf7d0' : '#fecaca'}`, textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '.68rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.4px' }}>Sobra</p>
+                          <p style={{ margin: '3px 0 0', fontSize: '1.3rem', fontWeight: 800, color: sobraKg !== null && sobraKg >= 0 ? '#16a34a' : '#dc2626' }}>
+                            {sobraKg !== null ? `${sobraKg >= 0 ? '+' : ''}${fmtNum(sobraKg)} kg` : '—'}
+                          </p>
+                          {sobraPct !== null && <p style={{ margin: '2px 0 0', fontSize: '.7rem', color: '#6b7280' }}>{fmtNum(sobraPct, 1)}% do total</p>}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Detalhe por cor ── */}
+                  {cores.length > 0 && (
+                    <div>
+                      <p style={{ margin: '0 0 8px', fontSize: '.72rem', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '.6px' }}>Detalhe por cor</p>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ borderCollapse: 'collapse', fontSize: '.82rem', width: '100%' }}>
+                          <thead><tr style={{ background: '#f8fafc' }}>
+                            {['Cor','Kg consumido','Pcs planejadas','Pcs cortadas','Diferença','% Rend.'].map(h => (
+                              <th key={h} style={{ padding: '8px 12px', fontWeight: 700, color: '#374151', textAlign: 'center', border: '1px solid #e5e7eb', fontSize: '.7rem', textTransform: 'uppercase' }}>{h}</th>
+                            ))}
+                          </tr></thead>
+                          <tbody>
+                            {rendimento.map(r => (
+                              <tr key={r.cor}>
+                                <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', fontWeight: 600, color: '#111827', textAlign: 'center' }}>{r.cor}</td>
+                                <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#374151' }}>{r.consumido > 0 ? `${r.consumido} kg` : '—'}</td>
+                                <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#6b7280' }}>{r.planejadas}</td>
+                                <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center', fontWeight: 700, color: r.cortadas >= r.planejadas ? '#16a34a' : '#dc2626' }}>{r.cortadas}</td>
+                                <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                                  <span style={{ fontWeight: 700, color: r.diff >= 0 ? '#16a34a' : '#dc2626' }}>
+                                    {r.diff >= 0 ? '+' : ''}{r.diff}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '8px 12px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                                  <span style={{ padding: '3px 8px', borderRadius: 999, background: Number(r.rend) >= 100 ? '#dcfce7' : '#fef3c7', color: Number(r.rend) >= 100 ? '#16a34a' : '#d97706', fontSize: '.75rem', fontWeight: 700 }}>
+                                    {r.rend}%
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
                   <p style={{ margin: 0, fontSize: '.8rem', color: '#6b7280' }}>
                     Ao finalizar, a OP avançará para a próxima fase automaticamente.
                   </p>
