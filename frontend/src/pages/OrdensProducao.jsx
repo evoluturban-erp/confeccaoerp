@@ -2,11 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTopbar } from '../context/TopbarContext';
 import { useApiQuery, useApiMutation } from '../hooks/useApi';
 import { useOverlayClose } from '../hooks/useOverlayClose';
+import SeletorTamanhos, { ALL_TAMANHOS, DEFAULT_TAMANHOS } from '../components/SeletorTamanhos';
 import api from '../services/api';
 
 // ── constantes ────────────────────────────────────────────────────────────────
-const FASES    = ['Cadastrada','Corte','Costura','Acabamento','Revisão','Expedição','Concluída'];
-const TAMANHOS = ['PP','P','M','G','GG','XGG'];
+const FASES = ['Cadastrada','Corte','Costura','Acabamento','Revisão','Expedição','Concluída'];
 
 const FASE_COR = {
   Cadastrada: { bg:'#f3f4f6', text:'#6b7280', border:'#d1d5db' },
@@ -105,15 +105,17 @@ function Stepper({faseAtual}) {
 
 // ── Tab referências ───────────────────────────────────────────────────────────
 function TabRefs({form,setForm}) {
-  const add = ()=>setForm(f=>({...f,referencias:[...f.referencias,{id:Date.now(),codigo:'',nome:'',cores:[],grade_json:{}}]}));
+  const add = ()=>setForm(f=>({...f,referencias:[...f.referencias,{id:Date.now(),codigo:'',nome:'',tamanhos:DEFAULT_TAMANHOS,cores:[],grade_json:{}}]}));
   const del = (i)=>setForm(f=>({...f,referencias:f.referencias.filter((_,j)=>j!==i)}));
   const upd = (i,k,v)=>setForm(f=>{const r=[...f.referencias];r[i]={...r[i],[k]:v};return{...f,referencias:r};});
+  const updTam=(i,tams)=>setForm(f=>{const r=[...f.referencias];r[i]={...r[i],tamanhos:tams};return{...f,referencias:r};});
   const addCor=(i,cor)=>{
     const c=cor.trim(); if(!c)return;
     setForm(f=>{
       const r=[...f.referencias]; const ref=r[i];
       if(ref.cores.includes(c))return f;
-      r[i]={...ref,cores:[...ref.cores,c],grade_json:{...ref.grade_json,[c]:{PP:'',P:'',M:'',G:'',GG:'',XGG:''}}};
+      const tams=ref.tamanhos||DEFAULT_TAMANHOS;
+      r[i]={...ref,cores:[...ref.cores,c],grade_json:{...ref.grade_json,[c]:Object.fromEntries(tams.map(t=>[t,'']))}};
       return{...f,referencias:r};
     });
   };
@@ -133,7 +135,8 @@ function TabRefs({form,setForm}) {
       {form.referencias.map((ref,i)=>(
         <RefCard key={ref.id||i} ref_={ref} idx={i} onDel={()=>del(i)}
           onUpd={(k,v)=>upd(i,k,v)} onAddCor={c=>addCor(i,c)}
-          onDelCor={c=>delCor(i,c)} onUpdGrade={(c,t,v)=>updGrade(i,c,t,v)}/>
+          onDelCor={c=>delCor(i,c)} onUpdGrade={(c,t,v)=>updGrade(i,c,t,v)}
+          onUpdTam={tams=>updTam(i,tams)}/>
       ))}
       <button onClick={add} style={{padding:'10px',border:'2px dashed #d1d5db',borderRadius:8,background:'#f9fafb',color:'#6b7280',fontSize:'.85rem',cursor:'pointer'}}>
         + Adicionar referência
@@ -141,8 +144,9 @@ function TabRefs({form,setForm}) {
     </div>
   );
 }
-function RefCard({ref_,idx,onDel,onUpd,onAddCor,onDelCor,onUpdGrade}) {
+function RefCard({ref_,idx,onDel,onUpd,onAddCor,onDelCor,onUpdGrade,onUpdTam}) {
   const [novaCor,setNovaCor]=useState('');
+  const tams=ref_.tamanhos||DEFAULT_TAMANHOS;
   return(
     <div style={{border:'1px solid #e5e7eb',borderRadius:10,overflow:'hidden'}}>
       <div style={{background:'#f8fafc',padding:'8px 12px',borderBottom:'1px solid #e5e7eb',display:'flex',alignItems:'center',gap:8}}>
@@ -153,7 +157,9 @@ function RefCard({ref_,idx,onDel,onUpd,onAddCor,onDelCor,onUpdGrade}) {
           style={{flex:1,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',fontSize:'.78rem'}}/>
         <button onClick={onDel} style={{background:'#fee2e2',color:'#dc2626',border:'none',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:'.75rem'}}>Remover</button>
       </div>
-      <div style={{padding:'10px 12px'}}>
+      <div style={{padding:'10px 12px',display:'flex',flexDirection:'column',gap:12}}>
+        <SeletorTamanhos selected={tams} onChange={onUpdTam} />
+        <div>
         <label style={{fontSize:'.75rem',fontWeight:600,color:'#374151',display:'block',marginBottom:6}}>Cores</label>
         <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:8}}>
           {ref_.cores.map(c=>(
@@ -174,15 +180,15 @@ function RefCard({ref_,idx,onDel,onUpd,onAddCor,onDelCor,onUpdGrade}) {
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:'.78rem'}}>
               <thead><tr style={{background:'#f8fafc'}}>
                 <th style={{padding:'5px 10px',textAlign:'left',color:'#374151',fontWeight:600}}>Cor</th>
-                {TAMANHOS.map(t=><th key={t} style={{padding:'5px 8px',textAlign:'center',color:'#374151',fontWeight:600}}>{t}</th>)}
+                {tams.map(t=><th key={t} style={{padding:'5px 8px',textAlign:'center',color:'#374151',fontWeight:600}}>{t}</th>)}
                 <th style={{padding:'5px 8px',textAlign:'center',color:'#16a34a',fontWeight:600}}>Total</th>
               </tr></thead>
               <tbody>{ref_.cores.map(cor=>{
                 const g=ref_.grade_json[cor]||{};
-                const tot=TAMANHOS.reduce((s,t)=>s+(+g[t]||0),0);
+                const tot=tams.reduce((s,t)=>s+(+g[t]||0),0);
                 return(<tr key={cor} style={{borderTop:'1px solid #f1f5f9'}}>
                   <td style={{padding:'4px 10px',fontWeight:600,color:'#7c3aed'}}>{cor}</td>
-                  {TAMANHOS.map(tam=>(
+                  {tams.map(tam=>(
                     <td key={tam} style={{padding:'3px 5px',textAlign:'center'}}>
                       <input type="number" min="0" value={g[tam]===undefined?'':g[tam]} onChange={e=>onUpdGrade(cor,tam,e.target.value)}
                         style={{width:48,textAlign:'center',padding:'3px',borderRadius:5,border:'1px solid #d1d5db',fontSize:'.78rem'}}/>
@@ -194,6 +200,7 @@ function RefCard({ref_,idx,onDel,onUpd,onAddCor,onDelCor,onUpdGrade}) {
             </table>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
@@ -490,6 +497,8 @@ export default function OrdensProducao() {
                 <h4 style={{margin:'0 0 10px',fontSize:'.85rem',fontWeight:700,color:'#374151'}}>Referências e Grade</h4>
                 {detalhe.referencias.map((ref,i)=>{
                   const cores=Object.keys(ref.grade_json||{});
+                  const usedKeys=new Set(cores.flatMap(c=>Object.keys(ref.grade_json[c]||{})));
+                  const detTams=ALL_TAMANHOS.filter(t=>usedKeys.has(t));
                   return(
                     <div key={i} style={{marginBottom:10,border:'1px solid #e5e7eb',borderRadius:8,overflow:'hidden'}}>
                       <div style={{background:'#f8fafc',padding:'8px 12px',borderBottom:'1px solid #e5e7eb'}}>
@@ -500,15 +509,15 @@ export default function OrdensProducao() {
                           <table style={{width:'100%',borderCollapse:'collapse',fontSize:'.8rem'}}>
                             <thead><tr style={{background:'#f8fafc'}}>
                               <th style={{padding:'6px 12px',textAlign:'left',color:'#374151'}}>Cor</th>
-                              {TAMANHOS.map(t=><th key={t} style={{padding:'6px 10px',textAlign:'center',color:'#374151'}}>{t}</th>)}
+                              {detTams.map(t=><th key={t} style={{padding:'6px 10px',textAlign:'center',color:'#374151'}}>{t}</th>)}
                               <th style={{padding:'6px 10px',textAlign:'center',color:'#16a34a'}}>Total</th>
                             </tr></thead>
                             <tbody>{cores.map(cor=>{
                               const g=ref.grade_json[cor]||{};
-                              const tot=TAMANHOS.reduce((s,t)=>s+(+g[t]||0),0);
+                              const tot=detTams.reduce((s,t)=>s+(+g[t]||0),0);
                               return(<tr key={cor} style={{borderTop:'1px solid #f1f5f9'}}>
                                 <td style={{padding:'6px 12px',fontWeight:600,color:'#7c3aed'}}>{cor}</td>
-                                {TAMANHOS.map(t=><td key={t} style={{padding:'6px 10px',textAlign:'center',color:'#374151'}}>{g[t]||0}</td>)}
+                                {detTams.map(t=><td key={t} style={{padding:'6px 10px',textAlign:'center',color:'#374151'}}>{g[t]||0}</td>)}
                                 <td style={{padding:'6px 10px',textAlign:'center',fontWeight:700,color:'#16a34a'}}>{tot}</td>
                               </tr>);
                             })}</tbody>
